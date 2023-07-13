@@ -1,0 +1,74 @@
+# Dataset info :)
+
+DATASET_NAME : "Cityscapes"
+DIR : "data/Cityscapes/"
+TRAIN_MODES : "supervised"  # Options: ["supervised", "self-distillation", "knowledge-distillation"]
+NUM_TRAIN_DATAS : 2975
+NUM_VAL_DATAS : 500
+IGNORE_LABEL : 255
+NUM_CLASSES : 19
+USE_CLASS_WEIGHTS : False
+CLASS_WEIGHTS : [0.8373, 0.918, 0.866, 1.0345,
+                 1.0166, 0.9969, 0.9754, 1.0489,
+                 0.8786, 1.0023, 0.9539, 0.9843,
+                 1.1116, 0.9037, 1.0865, 1.0955,
+                 1.0865, 1.1529, 1.0507]
+
+# Augmentation settings :)
+
+MEAN : [0.485, 0.456, 0.406]
+STD : [0.229, 0.224, 0.225]
+MIN_MAX_SIZE : [400, 1600]
+TRAIN_SIZE : [512, 512]
+VALID_SIZE : [512, 512]
+CJ_BRIGHTNESS : 0.0
+CJ_CONTRAST : 0.0
+CJ_SATURATION : 0.0
+CJ_HUE : 0.0
+NOISE_FACTOR : 15
+ROTATION_DEGREE : 10.0
+POSTERIZE_BITS : 2
+RANDAUG_NUM_OPS : 2
+RANDAUG_MAG : 9
+RANDAUG_NUM_MAG_BINS : 31
+TRIVIAL_NUM_MAG_BINS : 31
+TRAIN_AUGS : [
+    "RandomResize",
+    "RandomCrop",
+    "RandomHorizontalFlip",
+    "RandAugment",
+    "ToTensor",
+    "Normalize",
+]
+
+# Train settings :)
+
+OPTIMIZER : "SGD"  # Options: ["SGD", "ADAMW"]
+BATCH_SIZE : 8
+NUM_WORKER : 4
+LR : 0.0001
+SGD_MOMENTUM : 0.9
+ADAMW_BETAS : [0.9, 0.999]
+WEIGHT_DECAY : 0.0001
+EPOCHS : 50
+EARLY_STOPPING_TOLERANCE : 10
+EARLY_STOPPING_DELTA : 0.5
+WARMUP_EPOCHS : 0
+WARMUP_FACTOR : 0.1
+SCHEDULER_METHOD : "POLY"  # Options: ["POLY", "COS"]
+POLY_POWER : 0.9
+LABEL_SMOOTHING : 0.0
+OHEM_THRESH : 0.3
+FOCAL_ALPHA : 0.25
+FOCAL_GAMMA : 2.0
+MODEL : "unet"
+LOSS : "OHEM"  # Options: ["OHEM", "CROSS"]
+USE_EMA : False
+EMA_DECAY : 0.9999
+RESUME : False
+OVERFIT_TEST : False
+OVERFIT_EPOCHS : 100
+QAT : False
+QAT_PRETRAIN_WEIGHTS : ""
+QAT_OBSERVER_EPOCH : 4
+QAT_BATCHNORM_EPOCH : 3

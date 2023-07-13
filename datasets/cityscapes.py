@@ -1,26 +1,54 @@
 import os
+from typing import Tuple, Optional, Callable
 
 import PIL
 import cv2
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Rectangle
-from typing import Tuple
 from torch import Tensor
 
-from configs.cityscapes import LABEL_MAPPING, CLASSES, PHASES, MEAN, STD
-from .base import BaseDataset
-from .utils import unnormalize_image
+from dataset.base import BaseDataset
+
+PHASES = ["train", "val"]
+CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": "sidewalk", "color": (244, 35, 232)},
+           2: {"name": "building", "color": (70, 70, 70)}, 3: {"name": "wall", "color": (102, 102, 156)},
+           4: {"name": "fence", "color": (190, 153, 153)}, 5: {"name": "pole", "color": (153, 153, 153)},
+           6: {"name": "traffic light", "color": (250, 170, 30)},
+           7: {"name": "traffic sign", "color": (220, 220, 0)},
+           8: {"name": "vegetation", "color": (107, 142, 35)},
+           9: {"name": "terrain", "color": (152, 251, 152)},
+           10: {"name": "sky", "color": (70, 130, 180)}, 11: {"name": "person", "color": (220, 20, 60)},
+           12: {"name": "rider", "color": (255, 0, 0)}, 13: {"name": "car", "color": (0, 0, 142)},
+           14: {"name": "truck", "color": (0, 0, 70)}, 15: {"name": "bus", "color": (0, 60, 100)},
+           16: {"name": "train", "color": (0, 80, 100)},
+           17: {"name": "motorcycle", "color": (0, 0, 230)},
+           18: {"name": "bicycle", "color": (119, 11, 32)}, }
 
 
-def convert_labels(label: np.ndarray) -> np.ndarray:
+def convert_labels(label: np.ndarray, ignore_label: int = 255) -> np.ndarray:
     """
     convert all classes of cityscapes to 19 classes :)
     :param label: old label
+    :param ignore_label: ignore variable for unselected labels
     :return: new label
     """
+    label_mapping = {-1: ignore_label, 0: ignore_label,
+                     1: ignore_label, 2: ignore_label,
+                     3: ignore_label, 4: ignore_label,
+                     5: ignore_label, 6: ignore_label,
+                     7: 0, 8: 1, 9: ignore_label,
+                     10: ignore_label, 11: 2, 12: 3,
+                     13: 4, 14: ignore_label,
+                     15: ignore_label,
+                     16: ignore_label, 17: 5,
+                     18: ignore_label,
+                     19: 6, 20: 7, 21: 8, 22: 9, 23: 10, 24: 11,
+                     25: 12, 26: 13, 27: 14, 28: 15,
+                     29: ignore_label, 30: ignore_label,
+                     31: 16, 32: 17, 33: 18}
     temp = label.copy()
-    for k, v in LABEL_MAPPING.items():
+    for k, v in label_mapping.items():
         label[temp == k] = v
     return label
 
@@ -38,6 +66,7 @@ def show_image_city(image: PIL.Image.Image) -> None:
 def show_numpy_mask_city(label: PIL.Image.Image) -> None:
     """
     plot mask + guide :)
+    :param label: label
     """
     colors = []
     labels = []
@@ -59,21 +88,20 @@ def show_numpy_mask_city(label: PIL.Image.Image) -> None:
 class Cityscapes(BaseDataset):
     """
     Cityscapes Dataset Class :)
+    Link: "https://www.cityscapes-dataset.com/
     """
 
-    def __init__(self, phase, root, transforms=None, debug: bool = False) -> None:
+    def __init__(self, phase, root, transforms: Optional[Callable] = None) -> None:
         """
         :param phase: train or validation
         :param root: dataset directory
         :param transforms: data augmentations for change datas
-        :param debug: watch image & mask
         """
         super().__init__()
         assert phase in PHASES, f"{phase} not in {PHASES} :)"
         if not os.path.isfile("./train_val_paths.json"):
             self.create_json_paths_cityscapes(root, PHASES)
         self.files = self.read_json_file(phase)
-        self.debug = debug
         self.transforms = transforms
 
     def __getitem__(self, idx) -> Tuple[Tensor | PIL.Image.Image, Tensor | PIL.Image.Image]:
@@ -88,10 +116,6 @@ class Cityscapes(BaseDataset):
 
         if self.transforms is not None:
             image, mask = self.transforms(image, mask)
-        if self.debug:
-            show_image_city(PIL.Image.fromarray(unnormalize_image(image, mean=MEAN, std=STD)
-                                                .detach().cpu().permute(1, 2, 0).numpy().astype(np.uint8)))
-            show_numpy_mask_city(PIL.Image.fromarray(mask.detach().cpu().numpy().astype(np.uint8)))
 
         return image, mask
 

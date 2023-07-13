@@ -1,6 +1,6 @@
 import glob
 import json
-from typing import Dict
+from typing import Dict, List
 
 import tqdm.autonotebook as tqdm
 from torch.utils.data import Dataset
@@ -20,11 +20,11 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         pass
 
-    def create_json_paths_cityscapes(self, root: str, phases: str) -> None:
+    def create_json_paths_cityscapes(self, root: str, phases: List) -> None:
         """
         if json file doesn't exist create one file for cityscapes dataset:)
         :param root: dataset directory
-        :param phases: train or validation
+        :param phases: train or validation list
         """
         json_dict = {phase: [] for phase in phases}
         for key, value in json_dict.items():
@@ -46,7 +46,7 @@ class BaseDataset(Dataset):
 
     def read_json_file(self, phase: str) -> Dict:
         """
-        read json datas of phase
+        read json datas of phase :)
         :param phase: train or validation
         :return dictionary of files paths
         """
