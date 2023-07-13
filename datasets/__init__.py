@@ -1,5 +1,5 @@
-from dataset.utils import *
-from dataset.cityscapes import *
+from datasets.utils import *
+from datasets.cityscapes import *
 
 DATASETS = {
     "cityscapes": Cityscapes,
