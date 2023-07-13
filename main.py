@@ -1,0 +1,185 @@
+import copy
+import os
+
+import torch
+import argparse
+import utils
+
+from torchinfo import summary
+
+import train
+import transforms
+import datasets
+import models
+
+
+def get_args() -> argparse.ArgumentParser:
+    """
+    get arguments of program :)
+    :return: parser
+    """
+    parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
+                                     add_help=True)
+    parser.add_argument("--name", default="unet", type=str,
+                        help=f"experiment name ")
+    parser.add_argument("--dataset", default="cityscapes", type=str,
+                        help=f"datasets name ")
+
+    return parser
+
+
+def main() -> None:
+    """
+    main function
+    """
+    utils.setup_env()
+    parser = get_args()
+    args = parser.parse_args()
+
+    if args.dataset == "cityscapes":
+        yaml_file = "./configs/cityscapes.yaml"
+    else:
+        raise NotImplemented
+
+    writer = utils.create_log_dir(name=args.name, parser=parser)
+    args = parser.parse_args()
+    device = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
+                                                                   log_path=args.log)
+    args = parser.parse_args()
+
+    train_transforms, val_transforms = transforms.get_augs(args)
+    dataset, dataset_classes = datasets.DATASETS[args.dataset]
+    train_ds = dataset(phase="train", root=args.DIR, transforms=train_transforms)
+    valid_ds = dataset(phase="val", root=args.DIR, transforms=val_transforms)
+
+    train_sampler = torch.utils.data.RandomSampler(train_ds)
+    test_sampler = torch.utils.data.SequentialSampler(valid_ds)
+
+    train_dl = torch.utils.data.DataLoader(train_ds, batch_size=args.BATCH_SIZE,
+                                           sampler=train_sampler, num_workers=args.NUM_WORKER, drop_last=True,
+                                           collate_fn=datasets.collate_fn, pin_memory=True)
+
+    valid_dl = torch.utils.data.DataLoader(valid_ds, batch_size=1, sampler=test_sampler,
+                                           num_workers=args.NUM_WORKER, drop_last=True,
+                                           collate_fn=datasets.collate_fn, pin_memory=True)
+
+    model = models.MODELS_COLLECTIONS[args.MODEL](args.NUM_CLASSES, quantization=args.QAT)
+
+    if args.QAT:
+        print("Quantization Aware Training")
+        model.load_state_dict(torch.load(config.QAT_PRETRAIN_WEIGHTS)["model"])
+        model.fuse_model(is_qat=True)
+        qconfig = torch.ao.quantization.get_default_qat_qconfig("x86")
+        model.qconfig = qconfig
+        torch.ao.quantization.prepare_qat(model, inplace=True)
+        args.name = args.name + "_qat"
+
+    summary(model, (args.BATCH_SIZE, 3, args.TRAIN_SIZE[0], args.TRAIN_SIZE[1]),
+            device=device, col_width=16, col_names=["output_size", "num_params", "mult_adds"], verbose=1)
+
+    print()
+
+    optimizer, scaler, scheduler, model_ema = train.get_optimizer(model=model, num_iters=len(train_dl),
+                                                                  args=args, device=device)
+    criterion = train.Criterion(args=args)
+
+    if args.RESUME:
+        model, optimizer, scaler, scheduler, start_epoch, best_acc = utils.resume(model=model, optimizer=optimizer,
+                                                                                  scaler=scaler, scheduler=scheduler,
+                                                                                  model_ema=model_ema, args=args)
+    else:
+        start_epoch, best_acc = 0, 0.0
+
+    model.to(device)
+
+    early_stopping = train.EarlyStopping(tolerance=args.EARLY_STOPPING_TOLERANCE,
+                                         min_delta=args.EARLY_STOPPING_DELTA)
+
+    if args.QAT:
+        model.apply(torch.quantization.enable_observer)
+        model.apply(torch.quantization.enable_fake_quant)
+
+    for epoch in range(start_epoch + 1, args.EPOCHS + 1):
+
+        train_acc, train_loss = train.train_one_epoch(model=model, epoch=epoch, dataloader=train_dl,
+                                                      optimizer=optimizer, scaler=scaler, criterion=criterion,
+                                                      model_ema=model_ema, scheduler=scheduler, args=args,
+                                                      device=device)
+
+        with torch.inference_mode():
+
+            if epoch >= args.QAT_OBSERVER_EPOCH and args.QAT:
+                model.apply(torch.quantization.disable_observer)
+            if epoch >= args.QAT_BATCHNORM_EPOCH and args.QAT:
+                model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+
+            test_acc, test_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
+                                                 criterion=criterion, args=args, writer=writer,
+                                                 device=device, classes=dataset_classes)
+
+            if args.QAT:
+                print()
+                quantized_eval_model = copy.deepcopy(model)
+                quantized_eval_model.eval()
+                quantized_eval_model.to(torch.device("cpu"))
+                quantized_eval_model = torch.quantization.convert(quantized_eval_model, inplace=False)
+                print("Evaluate QAT model")
+                qat_acc, qat_loss = train.evaluate(model=quantized_eval_model, epoch=epoch, dataloader=valid_dl,
+                                                   criterion=criterion, args=args, writer=writer,
+                                                   device=torch.device("cpu"), classes=dataset_classes)
+
+        # add infos to tensorboard
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Metric/train', train_acc, epoch)
+        writer.add_scalar('LR/train', utils.get_lr(optimizer), epoch)
+        writer.add_scalar('Loss/valid', test_loss, epoch)
+        writer.add_scalar('Metric/valid', test_acc, epoch)
+
+        if args.QAT:
+            writer.add_scalar('Loss/QAT', qat_loss, epoch)
+            writer.add_scalar('Metric/QAT', qat_acc, epoch)
+
+        utils.save(model=model, acc=test_acc, best_acc=best_acc,
+                   scaler=scaler, optimizer=optimizer, scheduler=scheduler,
+                   model_ema=model_ema, epoch=epoch, args=args)
+
+        early_stopping(train_loss=train_loss, validation_loss=test_loss)
+        if early_stopping.early_stop:
+            print(f"Early Stop at Epoch: {epoch}")
+            break
+
+        if epoch == 1:
+            write_mode = "w"
+        else:
+            write_mode = "a"
+        log_path = os.path.join(args.log, f"log.txt")
+        with open(log_path, write_mode) as f:
+            f.write(f"Epoch: {epoch},"
+                    f" Train mIOU: {train_acc}, Train loss: {train_loss},"
+                    f" Valid mIOU: {test_acc}, Valid loss: {test_loss}")
+
+        print()
+
+    writer.add_hparams(
+        hparam_dict={
+            "lr": args.LR,
+            "weight_decay": args.WEIGHT_DECAY,
+            "optimizer": args.OPTIMIZER,
+            "batch_size": args.BATCH_SIZE,
+            "loss": args.LOSS,
+            "grad_norm": args.GRADIENT_NORM,
+        },
+        metric_dict={
+            "loss": test_loss,
+            "acc": test_acc,
+        })
+
+    torch.jit.save(torch.jit.script(model),
+                   os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
+    if args.QAT:
+        torch.jit.save(torch.jit.script(quantized_eval_model),
+                       os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
+
+
+if __name__ == "__main__":
+    main()
