@@ -6,7 +6,7 @@ import torch
 import cv2
 
 
-def unnormalize_image(img: torch.Tensor, mean: Tuple, std: Tuple) -> torch.Tensor:
+def unnormalize_image(img: torch.Tensor, mean: List, std: List) -> torch.Tensor:
     """
     return un-normalized tensor :)
     :param img: normalized image
@@ -50,35 +50,9 @@ def extract_edges(labels: torch.Tensor) -> torch.Tensor:
     return torch.cat(edges, dim=0)
 
 
-def collate_fn(batch: Tuple) -> Tuple[torch.Tensor, torch.Tensor, None]:
+def collate_fn(batch: Tuple) -> Tuple[torch.Tensor, torch.Tensor]:
     """
     collate function for train :)
-    :param batch: datas batch
-    :return: images_batch, labels_batch, None
-    """
-    images, targets = list(zip(*batch))
-    batched_imgs = cat_list(images, fill_value=0)
-    batched_targets = cat_list(targets, fill_value=255)
-
-    return batched_imgs, batched_targets, None
-
-
-def collate_edge_fn(batch: Tuple) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
-    """
-    collate function for train + SAB labels :)
-    :param batch: datas batch
-    :return: images_batch, labels_batch, edges_batch
-    """
-    images, targets = list(zip(*batch))
-    batched_imgs = cat_list(images, fill_value=0)
-    batched_targets = cat_list(targets, fill_value=255)
-    batched_edges = extract_edges(batched_targets)
-    return batched_imgs, batched_targets, batched_edges
-
-
-def collate_fn_val(batch: Tuple) -> Tuple[torch.Tensor, torch.Tensor]:
-    """
-    collate function for validation :)
     :param batch: datas batch
     :return: images_batch, labels_batch
     """
@@ -87,3 +61,4 @@ def collate_fn_val(batch: Tuple) -> Tuple[torch.Tensor, torch.Tensor]:
     batched_targets = cat_list(targets, fill_value=255)
 
     return batched_imgs, batched_targets
+
