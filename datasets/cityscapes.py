@@ -8,7 +8,7 @@ import numpy as np
 from matplotlib.patches import Rectangle
 from torch import Tensor
 
-from dataset.base import BaseDataset
+from datasets.base import BaseDataset
 
 PHASES = ["train", "val"]
 CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": "sidewalk", "color": (244, 35, 232)},
@@ -94,12 +94,12 @@ class Cityscapes(BaseDataset):
     def __init__(self, phase, root, transforms: Optional[Callable] = None) -> None:
         """
         :param phase: train or validation
-        :param root: dataset directory
+        :param root: datasets directory
         :param transforms: data augmentations for change datas
         """
         super().__init__()
         assert phase in PHASES, f"{phase} not in {PHASES} :)"
-        if not os.path.isfile("./train_val_paths.json"):
+        if not os.path.isfile("./train_val_paths_cityscapes.json"):
             self.create_json_paths_cityscapes(root, PHASES)
         self.files = self.read_json_file(phase)
         self.transforms = transforms
