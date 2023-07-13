@@ -11,19 +11,19 @@ from torch import Tensor
 from datasets.base import BaseDataset
 
 PHASES = ["train", "val"]
-CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": "sidewalk", "color": (244, 35, 232)},
-           2: {"name": "building", "color": (70, 70, 70)}, 3: {"name": "wall", "color": (102, 102, 156)},
-           4: {"name": "fence", "color": (190, 153, 153)}, 5: {"name": "pole", "color": (153, 153, 153)},
-           6: {"name": "traffic light", "color": (250, 170, 30)},
-           7: {"name": "traffic sign", "color": (220, 220, 0)},
-           8: {"name": "vegetation", "color": (107, 142, 35)},
-           9: {"name": "terrain", "color": (152, 251, 152)},
-           10: {"name": "sky", "color": (70, 130, 180)}, 11: {"name": "person", "color": (220, 20, 60)},
-           12: {"name": "rider", "color": (255, 0, 0)}, 13: {"name": "car", "color": (0, 0, 142)},
-           14: {"name": "truck", "color": (0, 0, 70)}, 15: {"name": "bus", "color": (0, 60, 100)},
-           16: {"name": "train", "color": (0, 80, 100)},
-           17: {"name": "motorcycle", "color": (0, 0, 230)},
-           18: {"name": "bicycle", "color": (119, 11, 32)}, }
+CITYSCAPES_CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": "sidewalk", "color": (244, 35, 232)},
+                      2: {"name": "building", "color": (70, 70, 70)}, 3: {"name": "wall", "color": (102, 102, 156)},
+                      4: {"name": "fence", "color": (190, 153, 153)}, 5: {"name": "pole", "color": (153, 153, 153)},
+                      6: {"name": "traffic light", "color": (250, 170, 30)},
+                      7: {"name": "traffic sign", "color": (220, 220, 0)},
+                      8: {"name": "vegetation", "color": (107, 142, 35)},
+                      9: {"name": "terrain", "color": (152, 251, 152)},
+                      10: {"name": "sky", "color": (70, 130, 180)}, 11: {"name": "person", "color": (220, 20, 60)},
+                      12: {"name": "rider", "color": (255, 0, 0)}, 13: {"name": "car", "color": (0, 0, 142)},
+                      14: {"name": "truck", "color": (0, 0, 70)}, 15: {"name": "bus", "color": (0, 60, 100)},
+                      16: {"name": "train", "color": (0, 80, 100)},
+                      17: {"name": "motorcycle", "color": (0, 0, 230)},
+                      18: {"name": "bicycle", "color": (119, 11, 32)}, }
 
 
 def convert_labels(label: np.ndarray, ignore_label: int = 255) -> np.ndarray:
@@ -70,7 +70,7 @@ def show_numpy_mask_city(label: PIL.Image.Image) -> None:
     """
     colors = []
     labels = []
-    for v in CLASSES.values():
+    for v in CITYSCAPES_CLASSES.values():
         colors.append(list(v["color"]))
         labels.append(v["name"])
     colors = np.array(colors, dtype=np.uint8)
