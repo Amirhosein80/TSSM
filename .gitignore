@@ -1,0 +1,6 @@
+__pycache__
+.idea
+data
+train_log
+mytests.ipynb
+train_val_paths_cityscapes.json
