@@ -22,8 +22,8 @@ class BaseDataset(Dataset):
 
     def create_json_paths_cityscapes(self, root: str, phases: List) -> None:
         """
-        if json file doesn't exist create one file for cityscapes dataset:)
-        :param root: dataset directory
+        if json file doesn't exist create one file for cityscapes datasets:)
+        :param root: datasets directory
         :param phases: train or validation list
         """
         json_dict = {phase: [] for phase in phases}
@@ -40,8 +40,8 @@ class BaseDataset(Dataset):
                 value.append({"Name": name,
                               "Image": path,
                               "Mask": mask})
-                loop.set_description(f"Creating JSON file for dataset files paths. Phase: {key}, Step: {step}")
-        with open("train_val_paths.json", "w") as openfile:
+                loop.set_description(f"Creating JSON file for datasets files paths. Phase: {key}, Step: {step}")
+        with open("train_val_paths_cityscapes.json", "w") as openfile:
             json.dump(json_dict, openfile)
 
     def read_json_file(self, phase: str) -> Dict:
@@ -50,6 +50,6 @@ class BaseDataset(Dataset):
         :param phase: train or validation
         :return dictionary of files paths
         """
-        with open('train_val_paths.json', 'r') as openfile:
+        with open('train_val_paths_cityscapes.json', 'r') as openfile:
             json_object = json.load(openfile)
         return json_object[phase]
