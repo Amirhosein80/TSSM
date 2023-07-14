@@ -25,6 +25,8 @@ def get_args() -> argparse.ArgumentParser:
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
+    parser.add_argument("--wandb", default="offline", type=str,
+                        help=f"set wandb offline or online")
 
     return parser
 
@@ -196,6 +198,14 @@ def main() -> None:
         })
 
     wandb.finish()
+
+    torch.jit.save(torch.jit.script(model),
+                   os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
+    if quantized_eval_model is not None:
+        torch.jit.save(torch.jit.script(quantized_eval_model),
+                       os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
+
+    print("Training finished")
 
 
 if __name__ == "__main__":
