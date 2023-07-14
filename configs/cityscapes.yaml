@@ -68,7 +68,7 @@ EMA_DECAY : 0.9999
 RESUME : False
 OVERFIT_TEST : False
 OVERFIT_EPOCHS : 100
-QAT : False
+QAT : True
 QAT_PRETRAIN_WEIGHTS : "./train_log/unet/3/checkpoint/best_unet.pth"
 QAT_OBSERVER_EPOCH : 4
 QAT_BATCHNORM_EPOCH : 3
