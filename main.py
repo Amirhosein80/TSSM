@@ -116,7 +116,7 @@ def main() -> None:
 
             valid_acc, valid_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
                                                    criterion=criterion, args=args, writer=writer,
-                                                   device=device, classes=dataset_classes)
+                                                   device=device, classes=dataset_classes, save_preds=True)
 
             if args.QAT:
                 print()
@@ -127,7 +127,11 @@ def main() -> None:
                 print("Evaluate QAT model")
                 qat_acc, qat_loss = train.evaluate(model=quantized_eval_model, epoch=epoch, dataloader=valid_dl,
                                                    criterion=criterion, args=args, writer=writer,
-                                                   device=torch.device("cpu"), classes=dataset_classes)
+                                                   device=torch.device("cpu"), classes=dataset_classes,
+                                                   save_preds=False)
+
+            else:
+                quantized_eval_model = None
 
         # add infos to tensorboard
         writer.add_scalar('Loss/train', train_loss, epoch)
@@ -154,8 +158,8 @@ def main() -> None:
 
         best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc,
                               scaler=scaler, optimizer=optimizer, scheduler=scheduler,
-                              model_ema=model_ema, epoch=epoch, args=args)
-
+                              model_ema=model_ema, epoch=epoch, args=args, qat_model=quantized_eval_model)
+        wandb.log(training_log)
         early_stopping(train_loss=train_loss, validation_loss=valid_loss)
         if early_stopping.early_stop:
             print(f"Early Stop at Epoch: {epoch}")
@@ -192,12 +196,6 @@ def main() -> None:
         })
 
     wandb.finish()
-
-    torch.jit.save(torch.jit.script(model),
-                   os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
-    if args.QAT:
-        torch.jit.save(torch.jit.script(quantized_eval_model),
-                       os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
 
 
 if __name__ == "__main__":
