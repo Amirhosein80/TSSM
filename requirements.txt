@@ -10,3 +10,5 @@ PyYAML~=6.0
 torchvision~=0.15.2+cu118
 torchinfo~=1.7.2
 imutils~=0.5.4
+tensorboardX~=2.6
+wandb~=0.15.5
