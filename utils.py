@@ -7,7 +7,7 @@ import tabulate
 import tensorboardX as tb
 import torch
 import yaml
-from typing import Tuple
+from typing import Tuple, Optional
 
 import wandb
 
@@ -29,7 +29,7 @@ def setup_env() -> None:
     """
     wandb.login()
     torch.backends.cudnn.benchmark = True
-    torch.backends.quantized.engine = "x86"
+    torch.backends.quantized.engine = "fbgemm"
     set_seed(0)
 
 
@@ -54,6 +54,7 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser, num_
     wandb.init(
         project="Pytorch Semantic Segmentation Models (TSSM)",
         name=f"{parser.parse_args().name}_{num_train}",
+        dir=f"{parser.parse_args().log}",
         config=configs
     )
     print("Load Configs")
@@ -135,7 +136,24 @@ def resume(model: torch.nn.Module, optimizer: torch.optim.Optimizer, scaler: tor
             print(f"Something is wrong! We train from Scratch :( ")
 
 
-def save(model, acc, best_acc, scaler, optimizer, scheduler, model_ema, epoch, args):
+def save(model: torch.nn.Module, acc: float, best_acc: float,
+         scaler: torch.cuda.amp.GradScaler, optimizer: torch.optim.Optimizer, model_ema: Optional[torch.nn.Module],
+         scheduler: torch.optim.lr_scheduler.LRScheduler, qat_model: Optional[torch.nn.Module], epoch: int,
+         args: Namespace) -> float:
+    """
+    save model and others
+    :param model: model
+    :param acc: mIOU
+    :param best_acc: best archived mIOU
+    :param scaler: gradient scaler (float 16)
+    :param optimizer: optimizer
+    :param model_ema: model_ema if enabled
+    :param scheduler: learning rate scheduler
+    :param qat_model: quantization aware training model
+    :param epoch: last epoch
+    :param args: arguments
+    :return: best mIOU
+    """
     if acc > best_acc:
         print('Saving checkpoint...')
         state = {
@@ -152,8 +170,12 @@ def save(model, acc, best_acc, scaler, optimizer, scheduler, model_ema, epoch, a
                 "model_ema": model_ema.module.state_dict()
             })
 
-        best_ckpt = os.path.join(args.log, f"checkpoint/best_{args.name}.pth")
-        torch.save(state, best_ckpt)
+        torch.save(state, os.path.join(args.log, f"checkpoint/best_{args.name}.pth"))
+        torch.jit.save(torch.jit.script(model),
+                       os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
+        if qat_model is not None:
+            torch.jit.save(torch.jit.script(qat_model),
+                           os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
 
         best_acc = acc
     return best_acc
