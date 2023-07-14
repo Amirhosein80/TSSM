@@ -4,6 +4,7 @@ import os
 import torch
 import argparse
 import utils
+import wandb
 
 from torchinfo import summary
 
@@ -41,10 +42,10 @@ def main() -> None:
     else:
         raise NotImplemented
 
-    writer = utils.create_log_dir(name=args.name, parser=parser)
+    writer, num_train = utils.create_log_dir(name=args.name, parser=parser)
     args = parser.parse_args()
     device = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
-                                                                   log_path=args.log)
+                                                                   log_path=args.log, num_train=num_train)
     args = parser.parse_args()
 
     train_transforms, val_transforms = transforms.get_augs(args)
@@ -53,13 +54,13 @@ def main() -> None:
     valid_ds = dataset(phase="val", root=args.DIR, transforms=val_transforms)
 
     train_sampler = torch.utils.data.RandomSampler(train_ds)
-    test_sampler = torch.utils.data.SequentialSampler(valid_ds)
+    valid_sampler = torch.utils.data.SequentialSampler(valid_ds)
 
     train_dl = torch.utils.data.DataLoader(train_ds, batch_size=args.BATCH_SIZE,
                                            sampler=train_sampler, num_workers=args.NUM_WORKER, drop_last=True,
                                            collate_fn=datasets.collate_fn, pin_memory=True)
 
-    valid_dl = torch.utils.data.DataLoader(valid_ds, batch_size=1, sampler=test_sampler,
+    valid_dl = torch.utils.data.DataLoader(valid_ds, batch_size=1, sampler=valid_sampler,
                                            num_workers=args.NUM_WORKER, drop_last=True,
                                            collate_fn=datasets.collate_fn, pin_memory=True)
 
@@ -67,7 +68,7 @@ def main() -> None:
 
     if args.QAT:
         print("Quantization Aware Training")
-        model.load_state_dict(torch.load(config.QAT_PRETRAIN_WEIGHTS)["model"])
+        model.load_state_dict(torch.load(args.QAT_PRETRAIN_WEIGHTS)["model"])
         model.fuse_model(is_qat=True)
         qconfig = torch.ao.quantization.get_default_qat_qconfig("x86")
         model.qconfig = qconfig
@@ -100,7 +101,7 @@ def main() -> None:
         model.apply(torch.quantization.enable_fake_quant)
 
     for epoch in range(start_epoch + 1, args.EPOCHS + 1):
-
+        utils.set_seed(epoch)
         train_acc, train_loss = train.train_one_epoch(model=model, epoch=epoch, dataloader=train_dl,
                                                       optimizer=optimizer, scaler=scaler, criterion=criterion,
                                                       model_ema=model_ema, scheduler=scheduler, args=args,
@@ -113,9 +114,9 @@ def main() -> None:
             if epoch >= args.QAT_BATCHNORM_EPOCH and args.QAT:
                 model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
 
-            test_acc, test_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
-                                                 criterion=criterion, args=args, writer=writer,
-                                                 device=device, classes=dataset_classes)
+            valid_acc, valid_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
+                                                   criterion=criterion, args=args, writer=writer,
+                                                   device=device, classes=dataset_classes)
 
             if args.QAT:
                 print()
@@ -132,20 +133,39 @@ def main() -> None:
         writer.add_scalar('Loss/train', train_loss, epoch)
         writer.add_scalar('Metric/train', train_acc, epoch)
         writer.add_scalar('LR/train', utils.get_lr(optimizer), epoch)
-        writer.add_scalar('Loss/valid', test_loss, epoch)
-        writer.add_scalar('Metric/valid', test_acc, epoch)
+        writer.add_scalar('Loss/valid', valid_loss, epoch)
+        writer.add_scalar('Metric/valid', valid_acc, epoch)
 
+        training_log = {
+            'Loss/train': train_loss,
+            'Metric/train': train_acc,
+            'Loss/valid': valid_loss,
+            'Metric/valid': valid_acc,
+            'Epoch': epoch,
+            'LR': utils.get_lr(optimizer),
+        }
         if args.QAT:
+            training_log.update({
+                'Loss/QAT': qat_loss,
+                'Metric/QAT': qat_acc
+            })
             writer.add_scalar('Loss/QAT', qat_loss, epoch)
             writer.add_scalar('Metric/QAT', qat_acc, epoch)
 
-        utils.save(model=model, acc=test_acc, best_acc=best_acc,
-                   scaler=scaler, optimizer=optimizer, scheduler=scheduler,
-                   model_ema=model_ema, epoch=epoch, args=args)
+        wandb.log(training_log)
 
-        early_stopping(train_loss=train_loss, validation_loss=test_loss)
+        best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc,
+                              scaler=scaler, optimizer=optimizer, scheduler=scheduler,
+                              model_ema=model_ema, epoch=epoch, args=args)
+
+        early_stopping(train_loss=train_loss, validation_loss=valid_loss)
         if early_stopping.early_stop:
             print(f"Early Stop at Epoch: {epoch}")
+            wandb.alert(
+                title='Early Stop',
+                text=f'Early Stopping at epoch {epoch} '
+                     f'training loss is {train_loss} and validation loss is {valid_loss}',
+            )
             break
 
         if epoch == 1:
@@ -156,7 +176,7 @@ def main() -> None:
         with open(log_path, write_mode) as f:
             f.write(f"Epoch: {epoch},"
                     f" Train mIOU: {train_acc}, Train loss: {train_loss},"
-                    f" Valid mIOU: {test_acc}, Valid loss: {test_loss}")
+                    f" Valid mIOU: {valid_acc}, Valid loss: {valid_loss}")
 
         print()
 
@@ -167,12 +187,13 @@ def main() -> None:
             "optimizer": args.OPTIMIZER,
             "batch_size": args.BATCH_SIZE,
             "loss": args.LOSS,
-            "grad_norm": args.GRADIENT_NORM,
         },
         metric_dict={
-            "loss": test_loss,
-            "acc": test_acc,
+            "loss": valid_loss,
+            "acc": valid_acc,
         })
+
+    wandb.finish()
 
     torch.jit.save(torch.jit.script(model),
                    os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
