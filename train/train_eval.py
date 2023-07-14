@@ -101,8 +101,9 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
     return miou, loss_total.avg.item()
 
 
-def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.DataLoader, criterion: torch.nn.Module,
-             args: Namespace, writer: tb.SummaryWriter, device: torch.device, classes: Dict) -> Tuple[float, float]:
+def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.DataLoader,
+             criterion: torch.nn.Module, args: Namespace, writer: tb.SummaryWriter,
+             device: torch.device, classes: Dict, save_preds: bool = True) -> Tuple[float, float]:
     """
     evaluate model for one epoch :)
     :param model: model
@@ -113,6 +114,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
     :param writer: tensor board summary writer
     :param device: device
     :param classes: dictionary {class label: {name: ..., color: (...)}
+    :param save_preds: save predictions
     :return: mIOU, loss value
     """
     model.eval()
@@ -139,23 +141,23 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
             loss_total.update(loss)
 
             loop.set_description(f"Valid ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}")
-            if (batch_idx + 1) % 50 == 0:
-                if epoch % 5 == 0:
-                    mask = outputs[0].detach().cpu().argmax(dim=0)
-                    mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
 
-                    image = inputs[0].detach().cpu()
-                    colors = []
-                    for v in classes.values():
-                        colors.append(v["color"])
-                    image = unnormalize_image(image, mean=args.MEAN, std=args.STD)
-                    img_mask = draw_segmentation_masks(
-                        image=image, masks=mask, colors=colors, alpha=0.75)
+            if (batch_idx + 1) % 50 == 0 and save_preds and epoch % 5 == 0:
+                mask = outputs[0].detach().cpu().argmax(dim=0)
+                mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
 
-                    writer.add_image(f"mask{batch_idx + 1}", img_mask, epoch)
-                    img_mask = img_mask.permute(1, 2, 0).numpy()
-                    img_mask = Image.fromarray(img_mask)
-                    img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
+                image = inputs[0].detach().cpu()
+                colors = []
+                for v in classes.values():
+                    colors.append(v["color"])
+                image = unnormalize_image(image, mean=args.MEAN, std=args.STD)
+                img_mask = draw_segmentation_masks(
+                    image=image, masks=mask, colors=colors, alpha=0.75)
+
+                writer.add_image(f"mask{batch_idx + 1}", img_mask, epoch)
+                img_mask = img_mask.permute(1, 2, 0).numpy()
+                img_mask = Image.fromarray(img_mask)
+                img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
 
     miou = metric.calculate()
     torch.cuda.empty_cache()
