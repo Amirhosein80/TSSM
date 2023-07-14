@@ -5,9 +5,13 @@ from typing import Tuple, Dict
 
 import torch
 import tqdm
+import PIL
+import numpy as np
 import tensorboardX as tb
+import wandb
 from PIL import Image
 from torchvision.utils import draw_segmentation_masks
+from torchvision.transforms.functional import to_pil_image
 
 from train.metrics import AverageMeter, ConfusionMatrix
 from datasets.utils import unnormalize_image
@@ -37,6 +41,8 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
     semantic_total = AverageMeter()
     aux_total = AverageMeter()
     edge_total = AverageMeter()
+
+    wandb.watch(model, criterion, log="all", log_freq=10)
 
     metric = ConfusionMatrix(num_classes=args.NUM_CLASSES)
     set_seed(epoch - 1)
@@ -80,6 +86,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
 
     torch.cuda.empty_cache()
     miou = metric.calculate()
+    wandb.unwatch(model)
 
     # save current model
     state = {
@@ -121,6 +128,8 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
     loss_total = AverageMeter()
 
+    table = wandb.Table(columns=['Original Image', 'Original Mask', 'Predicted Mask', 'Predict & Real'],
+                        allow_mixed_types=True)
     metric = ConfusionMatrix(num_classes=args.NUM_CLASSES)
     set_seed(epoch - 1)
     loop = tqdm.tqdm(dataloader, total=len(dataloader))
@@ -142,25 +151,44 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
             loop.set_description(f"Valid ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}")
 
-            if (batch_idx + 1) % 50 == 0 and save_preds and epoch % 5 == 0:
+            if (batch_idx + 1) % 50 == 0 and save_preds and epoch % 1 == 0:
                 mask = outputs[0].detach().cpu().argmax(dim=0)
                 mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
+
+                label = PIL.Image.fromarray(targets[0].detach().cpu().numpy().astype(np.uint8))
 
                 image = inputs[0].detach().cpu()
                 colors = []
                 for v in classes.values():
                     colors.append(v["color"])
+
                 image = unnormalize_image(image, mean=args.MEAN, std=args.STD)
+
                 img_mask = draw_segmentation_masks(
-                    image=image, masks=mask, colors=colors, alpha=0.75)
+                    image=image, masks=mask, colors=colors, alpha=0.8)
+                
+                pred_mask = draw_segmentation_masks(
+                    image=image, masks=mask, colors=colors, alpha=1.0)
+
+                colors = np.array(colors, dtype=np.uint8)
+                label.putpalette(colors)
 
                 writer.add_image(f"mask{batch_idx + 1}", img_mask, epoch)
+
+                table.add_data(
+                    wandb.Image(to_pil_image(image)),
+                    wandb.Image(label),
+                    wandb.Image(to_pil_image(pred_mask)),
+                    wandb.Image(to_pil_image(img_mask)),
+                )
+
                 img_mask = img_mask.permute(1, 2, 0).numpy()
                 img_mask = Image.fromarray(img_mask)
                 img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
 
     miou = metric.calculate()
     torch.cuda.empty_cache()
+    wandb.log({"Predictions": table})
 
     return miou, loss_total.avg.item()
 
