@@ -154,10 +154,11 @@ class AddLayer(nn.Module):
         :param use_relu: use relu after add or no
         """
         super().__init__()
-        self.quantization = quantization
         self.use_relu = use_relu
-        if self.quantization:
+        if quantization:
             self.add_layer = FloatFunctional()
+        else:
+            self.add_layer = None
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
         """
@@ -165,7 +166,7 @@ class AddLayer(nn.Module):
         :param x: input feature maps
         :return: output feature maps
         """
-        if self.quantization:
+        if self.add_layer is not None:
             if self.use_relu:
                 x = self.add_layer.add_relu(*x)
             else:
@@ -189,9 +190,10 @@ class CatLayer(nn.Module):
         """
         super().__init__()
         self.dim = dim
-        self.quantization = quantization
-        if self.quantization:
+        if quantization:
             self.cat_layer = FloatFunctional()
+        else:
+            self.cat_layer = None
 
     def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
         """
@@ -199,7 +201,7 @@ class CatLayer(nn.Module):
         :param x: input feature maps
         :return: output feature maps
         """
-        if self.quantization:
+        if self.cat_layer is not None:
             x = self.cat_layer.cat(x, dim=self.dim)
         else:
             x = torch.cat(x, dim=self.dim)
