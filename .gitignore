@@ -1,5 +1,10 @@
 __pycache__
 .idea
+configs/__pycache__
+datasets/__pycache__
+models/__pycache__
+train/__pycache__
+transforms/__pycache__
 data
 train_log
 mytests.ipynb
