@@ -4,10 +4,9 @@
 
 
 
-| `Datasets` | `Transforms` | `Models`            | `Losses`      | `Metrics` | `Training Features`         |
-|------------|--------------|---------------------|---------------|-----------|-----------------------------|
-| cityscapes |              | unet                | cross-entropy | mIOU      | knowledge-distillation      |
-|            |              | deeplabv3 (Pytorch) | OHEM          |           | float 16 training           |
-|            |              |                     |               |           | quantization aware training |
-|            |              |                     |               |           | EMA                         |
+| `Datasets` | `Transforms` | `Models` | `Losses`      | `Metrics` | `Training Features`         | `Training Visualization` |
+|------------|--------------|----------|---------------|-----------|-----------------------------|--------------------------|
+| cityscapes | Rand Aug     | UNet     | cross-entropy | mIOU      | EMA                         | Native                   |
+|            | Trivial Aug  |          | OHEM          |           | float 16 training           | TensorBoard              |
+|            |              |          |               |           | quantization aware training | WandB                    |
 
