@@ -155,7 +155,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
                     writer.add_image(f"mask{batch_idx + 1}", img_mask, epoch)
                     img_mask = img_mask.permute(1, 2, 0).numpy()
                     img_mask = Image.fromarray(img_mask)
-                    img_mask.save(os.path.join(args.log, f"/predicts/mask{batch_idx + 1}.jpg"))
+                    img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
 
     miou = metric.calculate()
     torch.cuda.empty_cache()
