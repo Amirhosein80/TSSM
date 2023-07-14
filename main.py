@@ -152,8 +152,6 @@ def main() -> None:
             writer.add_scalar('Loss/QAT', qat_loss, epoch)
             writer.add_scalar('Metric/QAT', qat_acc, epoch)
 
-        wandb.log(training_log)
-
         best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc,
                               scaler=scaler, optimizer=optimizer, scheduler=scheduler,
                               model_ema=model_ema, epoch=epoch, args=args)
