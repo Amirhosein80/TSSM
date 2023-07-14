@@ -54,8 +54,8 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser, num_
     wandb.init(
         project="Pytorch Semantic Segmentation Models (TSSM)",
         name=f"{parser.parse_args().name}_{num_train}",
-        dir=f"{parser.parse_args().log}",
-        config=configs
+        config=configs,
+        mode=parser.parse_args().wandb
     )
     print("Load Configs")
     table = tabulate.tabulate(configs_list, headers=["name", "config"])
@@ -171,11 +171,7 @@ def save(model: torch.nn.Module, acc: float, best_acc: float,
             })
 
         torch.save(state, os.path.join(args.log, f"checkpoint/best_{args.name}.pth"))
-        torch.jit.save(torch.jit.script(model),
-                       os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
         if qat_model is not None:
-            torch.jit.save(torch.jit.script(qat_model),
-                           os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
-
+            torch.save(qat_model.state_dict(), os.path.join(args.log, f"checkpoint/best_{args.name}.pth"))
         best_acc = acc
     return best_acc
