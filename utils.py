@@ -7,6 +7,9 @@ import tabulate
 import tensorboardX as tb
 import torch
 import yaml
+from typing import Tuple
+
+import wandb
 
 
 def set_seed(seed: int) -> None:
@@ -24,15 +27,17 @@ def setup_env() -> None:
     """
     setup backend defaults :)
     """
+    wandb.login()
     torch.backends.cudnn.benchmark = True
     torch.backends.quantized.engine = "x86"
     set_seed(0)
 
 
-def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
+def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser, num_train: int,
                                                     yaml_path: str, log_path: str) -> torch.device:
     """
     load configs from yaml file and add it to args also get device :)
+    :param num_train: number of training experiment
     :param parser: parser
     :param yaml_path: yaml file path
     :param log_path: log path to save train configs
@@ -46,6 +51,11 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
         parser.add_argument(f'--{key}', default=value, help=f'{key} value')
         configs_list.append([key, value])
     configs_list.append(["device", device])
+    wandb.init(
+        project="Pytorch Semantic Segmentation Models (TSSM)",
+        name=f"{parser.parse_args().name}_{num_train}",
+        config=configs
+    )
     print("Load Configs")
     table = tabulate.tabulate(configs_list, headers=["name", "config"])
     print(table)
@@ -73,12 +83,12 @@ def count_parameters(model: torch.nn.Module) -> float:
     return params / 1e6
 
 
-def create_log_dir(name: str, parser) -> tb.SummaryWriter:
+def create_log_dir(name: str, parser) -> Tuple[tb.SummaryWriter, int]:
     """
     create log directory :)
     :param name: experiment name
     :param parser: parser
-    :return:
+    :return: tensorboard writer, number of training experiment
     """
     os.makedirs(f'./train_log/{name}', exist_ok=True)
     num_train = len(os.listdir(f'./train_log/{name}')) + 1
@@ -86,7 +96,7 @@ def create_log_dir(name: str, parser) -> tb.SummaryWriter:
     os.makedirs(f'./train_log/{name}/{num_train}/predicts', exist_ok=True)
     writer = tb.SummaryWriter(f'./train_log/{name}/{num_train}/tensorboard')
     parser.add_argument(f'--log', default=f"./train_log/{name}/{num_train}/", help=f'log path')
-    return writer
+    return writer, num_train
 
 
 def resume(model: torch.nn.Module, optimizer: torch.optim.Optimizer, scaler: torch.cuda.amp.GradScaler,
@@ -99,7 +109,7 @@ def resume(model: torch.nn.Module, optimizer: torch.optim.Optimizer, scaler: tor
     :param scheduler: learning rate scheduler
     :param model_ema: model ema
     :param args: arguments
-    :return: model + optimizer + scaler + scheduler + start_epoch + best_acc
+    :return: model, optimizer, scaler, scheduler, start_epoch, best_acc
     """
     best_ckpt = os.path.join(args.log, f"checkpoint/best_{args.name}.pth")
     final_ckpt = os.path.join(args.log, f"checkpoint/final_{args.name}.pth")
@@ -146,4 +156,4 @@ def save(model, acc, best_acc, scaler, optimizer, scheduler, model_ema, epoch, a
         torch.save(state, best_ckpt)
 
         best_acc = acc
-        return best_acc
+    return best_acc
