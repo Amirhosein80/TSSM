@@ -32,11 +32,12 @@ class Unet(nn.Module):
         """
         super().__init__()
 
-        self.gradients = []
-        self.quantization = quantization
         if quantization:
             self.quant = torch.quantization.QuantStub()
             self.dequant = torch.quantization.DeQuantStub()
+        else:
+            self.quant = None
+            self.dequant = None
 
         self.stage1 = block(3, 32)
         self.stage2 = block(32, 64)
@@ -62,14 +63,14 @@ class Unet(nn.Module):
         self.cat2 = CatLayer(quantization=quantization)
         self.cat1 = CatLayer(quantization=quantization)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor | OrderedDict[torch.Tensor]:
+    def forward(self, x: torch.Tensor):
         """
         forward function :)
         :param x: input feature maps
         :return: output feature maps or OrderedDict
         """
         output = OrderedDict()
-        if self.quantization:
+        if self.quant is not None:
             x = self.quant(x)
         x1 = self.stage1(x)
         x2 = self.stage2(self.max_pool_2(x1))
@@ -88,7 +89,7 @@ class Unet(nn.Module):
         x = self.decoder1(x)
 
         x = self.head(x)
-        if self.quantization:
+        if self.dequant is not None:
             x = self.dequant(x)
         output["out"] = x
 
