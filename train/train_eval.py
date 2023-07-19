@@ -151,7 +151,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
             loop.set_description(f"Valid ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}")
 
-            if (batch_idx + 1) % 50 == 0 and save_preds and epoch % 1 == 0:
+            if (batch_idx + 1) % 50 == 0 and save_preds:
                 mask = outputs[0].detach().cpu().argmax(dim=0)
                 mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
 
@@ -166,7 +166,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
                 img_mask = draw_segmentation_masks(
                     image=image, masks=mask, colors=colors, alpha=0.8)
-                
+
                 pred_mask = draw_segmentation_masks(
                     image=image, masks=mask, colors=colors, alpha=1.0)
 
