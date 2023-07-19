@@ -33,11 +33,10 @@ def setup_env() -> None:
     set_seed(0)
 
 
-def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser, num_train: int,
+def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
                                                     yaml_path: str, log_path: str) -> torch.device:
     """
     load configs from yaml file and add it to args also get device :)
-    :param num_train: number of training experiment
     :param parser: parser
     :param yaml_path: yaml file path
     :param log_path: log path to save train configs
@@ -52,8 +51,8 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser, num_
         configs_list.append([key, value])
     configs_list.append(["device", device])
     wandb.init(
-        project="Pytorch Semantic Segmentation Models (TSSM)",
-        name=f"{parser.parse_args().name}_{num_train}",
+        project="Torch Semantic Segmentation Models (TSSM)",
+        name=f"{parser.parse_args().name}",
         config=configs,
         mode=parser.parse_args().wandb
     )
@@ -84,7 +83,7 @@ def count_parameters(model: torch.nn.Module) -> float:
     return params / 1e6
 
 
-def create_log_dir(name: str, parser) -> Tuple[tb.SummaryWriter, int]:
+def create_log_dir(name: str, parser) -> tb.SummaryWriter:
     """
     create log directory :)
     :param name: experiment name
@@ -92,12 +91,11 @@ def create_log_dir(name: str, parser) -> Tuple[tb.SummaryWriter, int]:
     :return: tensorboard writer, number of training experiment
     """
     os.makedirs(f'./train_log/{name}', exist_ok=True)
-    num_train = len(os.listdir(f'./train_log/{name}')) + 1
-    os.makedirs(f'./train_log/{name}/{num_train}/checkpoint', exist_ok=True)
-    os.makedirs(f'./train_log/{name}/{num_train}/predicts', exist_ok=True)
-    writer = tb.SummaryWriter(f'./train_log/{name}/{num_train}/tensorboard')
-    parser.add_argument(f'--log', default=f"./train_log/{name}/{num_train}/", help=f'log path')
-    return writer, num_train
+    os.makedirs(f'./train_log/{name}/checkpoint', exist_ok=True)
+    os.makedirs(f'./train_log/{name}/predicts', exist_ok=True)
+    writer = tb.SummaryWriter(f'./train_log/{name}/tensorboard')
+    parser.add_argument(f'--log', default=f"./train_log/{name}/", help=f'log path')
+    return writer
 
 
 def resume(model: torch.nn.Module, optimizer: torch.optim.Optimizer, scaler: torch.cuda.amp.GradScaler,
