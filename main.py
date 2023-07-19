@@ -14,6 +14,7 @@ import datasets
 import models
 
 
+
 def get_args() -> argparse.ArgumentParser:
     """
     get arguments of program :)
@@ -21,7 +22,7 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="unet", type=str,
+    parser.add_argument("--name", default="teacher", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
@@ -44,10 +45,10 @@ def main() -> None:
     else:
         raise NotImplemented
 
-    writer, num_train = utils.create_log_dir(name=args.name, parser=parser)
+    writer = utils.create_log_dir(name=args.name, parser=parser)
     args = parser.parse_args()
     device = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
-                                                                   log_path=args.log, num_train=num_train)
+                                                                   log_path=args.log)
     args = parser.parse_args()
 
     train_transforms, val_transforms = transforms.get_augs(args)
@@ -200,10 +201,18 @@ def main() -> None:
     wandb.finish()
 
     torch.jit.save(torch.jit.script(model),
-                   os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pth"))
+                   os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pth"))
+    
+    model.eval()
+    torch.onnx.export(model, torch.randn(args.BATCH_SIZE, 3, args.TRAIN_SIZE[0], args.TRAIN_SIZE[1], requires_grad=True),                        
+                  os.path.join(args.log, f"checkpoint/last_onnx_{args.name}.onnx"),  
+                  export_params=True, opset_version=10, do_constant_folding=True, 
+                  input_names = ['input'],  output_names = ['output'], 
+                  dynamic_axes={'input' : {0 : 'batch_size'}, 'output' : {0 : 'batch_size'}})
+    
     if quantized_eval_model is not None:
         torch.jit.save(torch.jit.script(quantized_eval_model),
-                       os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pth"))
+                       os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pth"))
 
     print("Training finished")
 
