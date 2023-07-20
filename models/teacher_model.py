@@ -27,7 +27,7 @@ class DeepLabV3(nn.Module):
         self.aux_classifier = model.aux_classifier
         del model
         self.head = nn.Sequential(
-            nn.Conv2d(128 + 24, 128, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.Conv2d(128 + 24 + 40, 128, kernel_size=3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             nn.Conv2d(128, num_classes, 1))
@@ -45,7 +45,9 @@ class DeepLabV3(nn.Module):
         x = features["out"]
         x = self.aspp(x)
         x = nn.functional.interpolate(x, scale_factor=4.0, mode="bilinear", align_corners=False)
-        x = torch.cat([x, features["inter"]], dim=1)
+        x = torch.cat([x, features["inter"], nn.functional.interpolate(features["aux"],
+                                                                       scale_factor=2.0, mode="bilinear",
+                                                                       align_corners=False)], dim=1)
         x = nn.functional.interpolate(self.head(x), size=input_shape, mode="bilinear", align_corners=False)
         result["out"] = x
 
@@ -68,7 +70,7 @@ class DeepLabV3(nn.Module):
         params_nwd = []
 
         for p in self.parameters():
-            if p.dim == 1:
+            if p.dim() == 1:
                 params_nwd.append(p)
             else:
                 params_wd.append(p)
@@ -90,5 +92,3 @@ if __name__ == "__main__":
     deeplab = DeepLabV3().cuda()
     out = deeplab(dump)
     print(torchinfo.summary(deeplab, (1, 3, 1024, 2048), device="cuda"))
-    # for name, module in deeplab.backbone.named_children():
-    #     print(name)
