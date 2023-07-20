@@ -4,7 +4,6 @@ import os
 import torch
 import argparse
 import utils
-import wandb
 
 from torchinfo import summary
 
@@ -12,7 +11,7 @@ import train
 import transforms
 import datasets
 import models
-
+import gc
 
 
 def get_args() -> argparse.ArgumentParser:
@@ -22,12 +21,10 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="teacher", type=str,
+    parser.add_argument("--name", default="deeplab", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
-    parser.add_argument("--wandb", default="offline", type=str,
-                        help=f"set wandb offline or online")
 
     return parser
 
@@ -36,6 +33,7 @@ def main() -> None:
     """
     main function
     """
+    gc.collect()
     utils.setup_env()
     parser = get_args()
     args = parser.parse_args()
@@ -50,7 +48,6 @@ def main() -> None:
     device = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
                                                                    log_path=args.log)
     args = parser.parse_args()
-
     train_transforms, val_transforms = transforms.get_augs(args)
     dataset, dataset_classes = datasets.DATASETS[args.dataset]
     train_ds = dataset(phase="train", root=args.DIR, transforms=train_transforms)
@@ -137,40 +134,29 @@ def main() -> None:
                 quantized_eval_model = None
 
         # add infos to tensorboard
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        writer.add_scalar('Metric/train', train_acc, epoch)
-        writer.add_scalar('LR/train', utils.get_lr(optimizer), epoch)
-        writer.add_scalar('Loss/valid', valid_loss, epoch)
-        writer.add_scalar('Metric/valid', valid_acc, epoch)
+        writer.add_scalar('Loss/train', train_loss, epoch, walltime=epoch,
+                          display_name="Training Loss", )
+        writer.add_scalar('Metric/train', train_acc, epoch, walltime=epoch,
+                          display_name="Training Metric", )
+        writer.add_scalar('LR/train', utils.get_lr(optimizer), epoch, walltime=epoch,
+                          display_name="Learning rate", )
+        writer.add_scalar('Loss/valid', valid_loss, epoch, walltime=epoch,
+                          display_name="Validation Loss", )
+        writer.add_scalar('Metric/valid', valid_acc, epoch, walltime=epoch,
+                          display_name="Validation Metric", )
 
-        training_log = {
-            'Loss/train': train_loss,
-            'Metric/train': train_acc,
-            'Loss/valid': valid_loss,
-            'Metric/valid': valid_acc,
-            'Epoch': epoch,
-            'LR': utils.get_lr(optimizer),
-        }
         if args.QAT:
-            training_log.update({
-                'Loss/QAT': qat_loss,
-                'Metric/QAT': qat_acc
-            })
             writer.add_scalar('Loss/QAT', qat_loss, epoch)
             writer.add_scalar('Metric/QAT', qat_acc, epoch)
 
-        best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc,
-                              scaler=scaler, optimizer=optimizer, scheduler=scheduler,
+        best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc, writer=writer,
+                              scaler=scaler, optimizer=optimizer, scheduler=scheduler, device=device,
                               model_ema=model_ema, epoch=epoch, args=args, qat_model=quantized_eval_model)
-        wandb.log(training_log)
+
         early_stopping(train_loss=train_loss, validation_loss=valid_loss)
         if early_stopping.early_stop:
             print(f"Early Stop at Epoch: {epoch}")
-            wandb.alert(
-                title='Early Stop',
-                text=f'Early Stopping at epoch {epoch} '
-                     f'training loss is {train_loss} and validation loss is {valid_loss}',
-            )
+
             break
 
         if epoch == 1:
@@ -198,22 +184,15 @@ def main() -> None:
             "acc": valid_acc,
         })
 
-    wandb.finish()
-
     torch.jit.save(torch.jit.script(model),
-                   os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pth"))
-    
-    model.eval()
-    torch.onnx.export(model, torch.randn(args.BATCH_SIZE, 3, args.TRAIN_SIZE[0], args.TRAIN_SIZE[1], requires_grad=True),                        
-                  os.path.join(args.log, f"checkpoint/last_onnx_{args.name}.onnx"),  
-                  export_params=True, opset_version=10, do_constant_folding=True, 
-                  input_names = ['input'],  output_names = ['output'], 
-                  dynamic_axes={'input' : {0 : 'batch_size'}, 'output' : {0 : 'batch_size'}})
-    
+                   os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pt"))
+
+    model.to(torch.device("cpu"))
     if quantized_eval_model is not None:
         torch.jit.save(torch.jit.script(quantized_eval_model),
-                       os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pth"))
+                       os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pt"))
 
+    writer.close()
     print("Training finished")
 
 
