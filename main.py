@@ -1,5 +1,6 @@
 import copy
 import os
+import comet_ml
 
 import torch
 import argparse
@@ -45,8 +46,8 @@ def main() -> None:
 
     writer = utils.create_log_dir(name=args.name, parser=parser)
     args = parser.parse_args()
-    device = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
-                                                                   log_path=args.log)
+    device, experiment = utils.add_yaml_2_args_and_save_configs_and_get_device(parser=parser, yaml_path=yaml_file,
+                                                                               log_path=args.log)
     args = parser.parse_args()
     train_transforms, val_transforms = transforms.get_augs(args)
     dataset, dataset_classes = datasets.DATASETS[args.dataset]
@@ -74,9 +75,11 @@ def main() -> None:
         model.qconfig = qconfig
         torch.ao.quantization.prepare_qat(model, inplace=True)
         args.name = args.name + "_qat"
+        experiment.set_name(args.name)
 
     summary(model, (args.BATCH_SIZE, 3, args.TRAIN_SIZE[0], args.TRAIN_SIZE[1]),
             device=device, col_width=16, col_names=["output_size", "num_params", "mult_adds"], verbose=1)
+    experiment.set_model_graph(model)
 
     print()
 
@@ -102,38 +105,46 @@ def main() -> None:
 
     for epoch in range(start_epoch + 1, args.EPOCHS + 1):
         utils.set_seed(epoch)
-        train_acc, train_loss = train.train_one_epoch(model=model, epoch=epoch, dataloader=train_dl,
-                                                      optimizer=optimizer, scaler=scaler, criterion=criterion,
-                                                      model_ema=model_ema, scheduler=scheduler, args=args,
-                                                      device=device)
+        with experiment.train():
+            train_acc, train_loss = train.train_one_epoch(model=model, epoch=epoch, dataloader=train_dl,
+                                                          optimizer=optimizer, scaler=scaler, criterion=criterion,
+                                                          model_ema=model_ema, scheduler=scheduler, args=args,
+                                                          device=device)
 
         with torch.inference_mode():
+            with experiment.validate():
 
-            if epoch >= args.QAT_OBSERVER_EPOCH and args.QAT:
-                model.apply(torch.quantization.disable_observer)
-            if epoch >= args.QAT_BATCHNORM_EPOCH and args.QAT:
-                model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
+                if epoch >= args.QAT_OBSERVER_EPOCH and args.QAT:
+                    model.apply(torch.quantization.disable_observer)
+                if epoch >= args.QAT_BATCHNORM_EPOCH and args.QAT:
+                    model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
 
-            valid_acc, valid_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
-                                                   criterion=criterion, args=args, writer=writer,
-                                                   device=device, classes=dataset_classes, save_preds=True)
+                valid_acc, valid_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
+                                                       criterion=criterion, args=args, writer=writer,
+                                                       experiment=experiment, device=device, classes=dataset_classes,
+                                                       save_preds=True)
 
-            if args.QAT:
-                print()
-                quantized_eval_model = copy.deepcopy(model)
-                quantized_eval_model.eval()
-                quantized_eval_model.to(torch.device("cpu"))
-                quantized_eval_model = torch.quantization.convert(quantized_eval_model, inplace=False)
-                print("Evaluate QAT model")
-                qat_acc, qat_loss = train.evaluate(model=quantized_eval_model, epoch=epoch, dataloader=valid_dl,
-                                                   criterion=criterion, args=args, writer=writer,
-                                                   device=torch.device("cpu"), classes=dataset_classes,
-                                                   save_preds=False)
+                if args.QAT:
+                    print()
+                    quantized_eval_model = copy.deepcopy(model)
+                    quantized_eval_model.eval()
+                    quantized_eval_model.to(torch.device("cpu"))
+                    quantized_eval_model = torch.quantization.convert(quantized_eval_model, inplace=False)
+                    print("Evaluate QAT model")
+                    qat_acc, qat_loss = train.evaluate(model=quantized_eval_model, epoch=epoch, dataloader=valid_dl,
+                                                       criterion=criterion, args=args, writer=writer,
+                                                       experiment=experiment, device=torch.device("cpu"),
+                                                       classes=dataset_classes, save_preds=False)
 
-            else:
-                quantized_eval_model = None
+                else:
+                    quantized_eval_model = None
 
         # add infos to tensorboard
+        experiment.log_metric("Loss_train", train_loss, epoch=epoch)
+        experiment.log_metric("Metric_train", train_acc, epoch=epoch)
+        experiment.log_metric("Loss_valid", valid_loss, epoch=epoch)
+        experiment.log_metric("Metric_valid", valid_acc, epoch=epoch)
+
         writer.add_scalar('Loss/train', train_loss, epoch, walltime=epoch,
                           display_name="Training Loss", )
         writer.add_scalar('Metric/train', train_acc, epoch, walltime=epoch,
@@ -146,8 +157,12 @@ def main() -> None:
                           display_name="Validation Metric", )
 
         if args.QAT:
-            writer.add_scalar('Loss/QAT', qat_loss, epoch)
-            writer.add_scalar('Metric/QAT', qat_acc, epoch)
+            writer.add_scalar('Loss/QAT', qat_loss, epoch, walltime=epoch,
+                              display_name="QAT Loss", )
+            writer.add_scalar('Metric/QAT', qat_acc, epoch, walltime=epoch,
+                              display_name="QAT Metric", )
+            experiment.log_metric("Loss_QAT", qat_loss, epoch=epoch)
+            experiment.log_metric("Metric_QAT", qat_acc, epoch=epoch)
 
         best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc, writer=writer,
                               scaler=scaler, optimizer=optimizer, scheduler=scheduler, device=device,
@@ -171,6 +186,12 @@ def main() -> None:
 
         print()
 
+        model.to(torch.device("cpu"))
+        for name, param in model.named_parameters():
+            if param.dim() != 1:
+                experiment.log_histogram_3d(param, name, epoch)
+        model.to(device)
+
     writer.add_hparams(
         hparam_dict={
             "lr": args.LR,
@@ -193,6 +214,7 @@ def main() -> None:
                        os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pt"))
 
     writer.close()
+    experiment.end()
     print("Training finished")
 
 
