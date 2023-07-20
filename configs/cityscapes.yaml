@@ -65,7 +65,7 @@ MODEL : "deeplabv3"
 LOSS : "OHEM"  # Options: ["OHEM", "CROSS"]
 USE_EMA : False
 EMA_DECAY : 0.9999
-RESUME : False
+RESUME : True
 OVERFIT_TEST : False
 OVERFIT_EPOCHS : 100
 QAT : False
