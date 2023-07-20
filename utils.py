@@ -1,7 +1,7 @@
 import os
 import random
 from argparse import ArgumentParser, Namespace
-from typing import Optional
+from typing import Optional, Tuple
 
 import comet_ml
 import numpy as np
@@ -35,7 +35,9 @@ def setup_env() -> None:
 
 
 def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
-                                                    yaml_path: str, log_path: str) -> torch.device:
+                                                    yaml_path: str, log_path: str)\
+                                                    -> Tuple[torch.device, comet_ml.Experiment]:
+
     """
     load configs from yaml file and add it to args also get device :)
     :param parser: parser
@@ -51,12 +53,16 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
         parser.add_argument(f'--{key}', default=value, help=f'{key} value')
         configs_list.append([key, value])
     configs_list.append(["device", device])
+    configs["device"] = device
+    experiment = comet_ml.Experiment(log_code=True)
+    experiment.set_name(parser.parse_args().name)
+    experiment.log_parameters(configs)
     print("Load Configs")
     table = tabulate.tabulate(configs_list, headers=["name", "config"])
     print(table)
     with open(os.path.join(log_path, "configs.txt"), "w") as file:
         file.write(table)
-    return device
+    return device, experiment
 
 
 def get_lr(optimizer: torch.optim.Optimizer) -> float:
@@ -88,8 +94,7 @@ def create_log_dir(name: str, parser) -> tb.SummaryWriter:
     os.makedirs(f'./train_log/{name}', exist_ok=True)
     os.makedirs(f'./train_log/{name}/checkpoint', exist_ok=True)
     os.makedirs(f'./train_log/{name}/predicts', exist_ok=True)
-    writer = tb.SummaryWriter(f'./train_log/{name}/tensorboard',
-                              comet_config={"disabled": False})
+    writer = tb.SummaryWriter(f'./train_log/{name}/tensorboard')
     parser.add_argument(f'--log', default=f"./train_log/{name}/", help=f'log path')
     return writer
 
