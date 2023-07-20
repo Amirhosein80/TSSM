@@ -1,15 +1,14 @@
 import os
 import random
 from argparse import ArgumentParser, Namespace
+from typing import Optional
 
+import comet_ml
 import numpy as np
 import tabulate
 import tensorboardX as tb
 import torch
 import yaml
-from typing import Tuple, Optional
-
-import wandb
 
 
 def set_seed(seed: int) -> None:
@@ -27,7 +26,9 @@ def setup_env() -> None:
     """
     setup backend defaults :)
     """
-    wandb.login()
+    comet_ml.init(
+        project_name="torch-semantic-segmentation-models",
+    )
     torch.backends.cudnn.benchmark = True
     torch.backends.quantized.engine = "fbgemm"
     set_seed(0)
@@ -50,12 +51,6 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
         parser.add_argument(f'--{key}', default=value, help=f'{key} value')
         configs_list.append([key, value])
     configs_list.append(["device", device])
-    wandb.init(
-        project="Torch Semantic Segmentation Models (TSSM)",
-        name=f"{parser.parse_args().name}",
-        config=configs,
-        mode=parser.parse_args().wandb
-    )
     print("Load Configs")
     table = tabulate.tabulate(configs_list, headers=["name", "config"])
     print(table)
@@ -93,7 +88,8 @@ def create_log_dir(name: str, parser) -> tb.SummaryWriter:
     os.makedirs(f'./train_log/{name}', exist_ok=True)
     os.makedirs(f'./train_log/{name}/checkpoint', exist_ok=True)
     os.makedirs(f'./train_log/{name}/predicts', exist_ok=True)
-    writer = tb.SummaryWriter(f'./train_log/{name}/tensorboard')
+    writer = tb.SummaryWriter(f'./train_log/{name}/tensorboard',
+                              comet_config={"disabled": False})
     parser.add_argument(f'--log', default=f"./train_log/{name}/", help=f'log path')
     return writer
 
@@ -137,7 +133,7 @@ def resume(model: torch.nn.Module, optimizer: torch.optim.Optimizer, scaler: tor
 def save(model: torch.nn.Module, acc: float, best_acc: float,
          scaler: torch.cuda.amp.GradScaler, optimizer: torch.optim.Optimizer, model_ema: Optional[torch.nn.Module],
          scheduler: torch.optim.lr_scheduler.LRScheduler, qat_model: Optional[torch.nn.Module], epoch: int,
-         args: Namespace) -> float:
+         args: Namespace, writer: tb.SummaryWriter, device: torch.device) -> float:
     """
     save model and others
     :param model: model
@@ -151,6 +147,8 @@ def save(model: torch.nn.Module, acc: float, best_acc: float,
     :param epoch: last epoch
     :param args: arguments
     :return: best mIOU
+    :param device: device cpu or cuda
+    :param writer: tensorboard
     """
     if acc > best_acc:
         print('Saving checkpoint...')
@@ -169,7 +167,11 @@ def save(model: torch.nn.Module, acc: float, best_acc: float,
             })
 
         torch.save(state, os.path.join(args.log, f"checkpoint/best_{args.name}.pth"))
+        torch.jit.save(torch.jit.script(model),
+                       os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pt"))
         if qat_model is not None:
             torch.save(qat_model.state_dict(), os.path.join(args.log, f"checkpoint/best_{args.name}.pth"))
+            torch.jit.save(torch.jit.script(qat_model),
+                           os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pt"))
         best_acc = acc
     return best_acc
