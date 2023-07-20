@@ -6,6 +6,7 @@ from typing import Tuple, Dict
 import tensorboardX as tb
 import torch
 import tqdm
+import comet_ml
 from PIL import Image
 from torchvision.utils import draw_segmentation_masks
 
@@ -102,7 +103,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
 
 
 def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.DataLoader,
-             criterion: torch.nn.Module, args: Namespace, writer: tb.SummaryWriter,
+             criterion: torch.nn.Module, args: Namespace, writer: tb.SummaryWriter, experiment: comet_ml.Experiment,
              device: torch.device, classes: Dict, save_preds: bool = True) -> Tuple[float, float]:
     """
     evaluate model for one epoch :)
@@ -115,6 +116,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
     :param device: device
     :param classes: dictionary {class label: {name: ..., color: (...)}
     :param save_preds: save predictions
+    :param experiment: comet experiment
     :return: mIOU, loss value
     """
     model.eval()
@@ -160,6 +162,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
                 img_mask = img_mask.permute(1, 2, 0).numpy()
                 img_mask = Image.fromarray(img_mask)
+                experiment.log_image(img_mask, f"mask{batch_idx + 1}", step=epoch)
                 img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
 
     miou = metric.calculate()
