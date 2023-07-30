@@ -1,18 +1,18 @@
-import copy
-import os
-import comet_ml
-
-import torch
 import argparse
-import utils
+import copy
+import gc
+import os
 
+import matplotlib.pyplot as plt
+import pandas as pd
+import torch
 from torchinfo import summary
 
-import train
-import transforms
 import datasets
 import models
-import gc
+import train
+import transforms
+import utils
 
 
 def get_args() -> argparse.ArgumentParser:
@@ -22,7 +22,7 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="deeplab", type=str,
+    parser.add_argument("--name", default="deeplabv3_run1", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
@@ -32,7 +32,7 @@ def get_args() -> argparse.ArgumentParser:
 
 def main() -> None:
     """
-    main function
+    Hi I am Amirhosein Feiz I write this code to train my semantic segmentation ideas :)
     """
     gc.collect()
     utils.setup_env()
@@ -65,7 +65,7 @@ def main() -> None:
                                            num_workers=args.NUM_WORKER, drop_last=True,
                                            collate_fn=datasets.collate_fn, pin_memory=True)
 
-    model = models.MODELS_COLLECTIONS[args.MODEL](args.NUM_CLASSES, quantization=args.QAT)
+    model = models.MODELS_COLLECTIONS[args.MODEL](args.NUM_CLASSES, quantization=args.QAT, inference=False)
 
     if args.QAT:
         print("Quantization Aware Training")
@@ -88,11 +88,21 @@ def main() -> None:
     criterion = train.Criterion(args=args)
 
     if args.RESUME:
-        model, optimizer, scaler, scheduler, start_epoch, best_acc = utils.resume(model=model, optimizer=optimizer,
-                                                                                  scaler=scaler, scheduler=scheduler,
-                                                                                  model_ema=model_ema, args=args)
+        model, optimizer, scaler, scheduler, start_epoch, best_acc, log_dict = utils.resume(model=model,
+                                                                                            optimizer=optimizer,
+                                                                                            scaler=scaler,
+                                                                                            scheduler=scheduler,
+                                                                                            model_ema=model_ema,
+                                                                                            args=args)
     else:
         start_epoch, best_acc = 0, 0.0
+        log_dict = {
+            "Train Loss": [],
+            "Valid Loss": [],
+            "Train Metric": [],
+            "Valid Metric": [],
+            "LR": []
+        }
 
     model.to(device)
 
@@ -109,7 +119,7 @@ def main() -> None:
             train_acc, train_loss = train.train_one_epoch(model=model, epoch=epoch, dataloader=train_dl,
                                                           optimizer=optimizer, scaler=scaler, criterion=criterion,
                                                           model_ema=model_ema, scheduler=scheduler, args=args,
-                                                          device=device)
+                                                          device=device, log_dict=log_dict)
 
         with torch.inference_mode():
             with experiment.validate():
@@ -145,6 +155,32 @@ def main() -> None:
         experiment.log_metric("Loss_valid", valid_loss, epoch=epoch)
         experiment.log_metric("Metric_valid", valid_acc, epoch=epoch)
 
+        log_dict["Train Loss"].append(train_loss)
+        log_dict["Valid Loss"].append(valid_loss)
+        log_dict["Train Metric"].append(train_acc)
+        log_dict["Valid Metric"].append(valid_acc)
+        log_dict["LR"].append(utils.get_lr(optimizer))
+
+        plt.clf()
+        plt.plot(log_dict["Train Loss"], label="Train Loss")
+        plt.plot(log_dict["Valid Loss"], label="Valid Loss")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(args.log, f"loss_log.png"))
+
+        plt.clf()
+        plt.plot(log_dict["Train Metric"], label="Train Metric")
+        plt.plot(log_dict["Valid Metric"], label="Valid Metric")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(args.log, f"metric_log.png"))
+
+        plt.clf()
+        plt.plot(log_dict["LR"], label="LR")
+        plt.legend()
+        plt.grid(True)
+        plt.savefig(os.path.join(args.log, f"lr_log.png"))
+
         writer.add_scalar('Loss/train', train_loss, epoch, walltime=epoch,
                           display_name="Training Loss", )
         writer.add_scalar('Metric/train', train_acc, epoch, walltime=epoch,
@@ -164,9 +200,9 @@ def main() -> None:
             experiment.log_metric("Loss_QAT", qat_loss, epoch=epoch)
             experiment.log_metric("Metric_QAT", qat_acc, epoch=epoch)
 
-        best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc, writer=writer,
-                              scaler=scaler, optimizer=optimizer, scheduler=scheduler, device=device,
-                              model_ema=model_ema, epoch=epoch, args=args, qat_model=quantized_eval_model)
+        best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc, scaler=scaler, optimizer=optimizer,
+                              scheduler=scheduler, model_ema=model_ema, epoch=epoch, args=args,
+                              qat_model=quantized_eval_model, log_dict=log_dict)
 
         early_stopping(train_loss=train_loss, validation_loss=valid_loss)
         if early_stopping.early_stop:
@@ -182,10 +218,12 @@ def main() -> None:
         with open(log_path, write_mode) as f:
             f.write(f"Epoch: {epoch},"
                     f" Train mIOU: {train_acc}, Train loss: {train_loss},"
-                    f" Valid mIOU: {valid_acc}, Valid loss: {valid_loss}")
+                    f" Valid mIOU: {valid_acc}, Valid loss: {valid_loss}\n")
 
         print()
-
+        log_path = os.path.join(args.log, f"log.csv")
+        df = pd.DataFrame(log_dict)
+        df.to_csv(log_path, index=False)
         model.to(torch.device("cpu"))
         for name, param in model.named_parameters():
             if param.dim() != 1:
@@ -215,7 +253,7 @@ def main() -> None:
 
     writer.close()
     experiment.end()
-    print("Training finished")
+    print(f"Training finished best mIOU is {best_acc:.4}")
 
 
 if __name__ == "__main__":
