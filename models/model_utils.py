@@ -140,6 +140,7 @@ class ConvBNAct(nn.Module):
         :param is_qat: use quantization aware training or not
         :return:
         """
+        
         _fuse_modules(self.conv, ["conv", "bn", "act"], is_qat, inplace=True)
 
 
@@ -160,19 +161,20 @@ class AddLayer(nn.Module):
         else:
             self.add_layer = None
 
-    def forward(self, x: List[torch.Tensor]) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         """
         forward function :)
         :param x: input feature maps
+        :param y: other feature maps
         :return: output feature maps
         """
         if self.add_layer is not None:
             if self.use_relu:
-                x = self.add_layer.add_relu(*x)
+                x = self.add_layer.add_relu(x, y)
             else:
-                x = self.add_layer.add(*x)
+                x = self.add_layer.add(x, y)
         else:
-            x = sum(x)
+            x = x + y
             if self.use_relu:
                 x = nn.functional.relu(x)
         return x
@@ -206,6 +208,72 @@ class CatLayer(nn.Module):
         else:
             x = torch.cat(x, dim=self.dim)
         return x
+
+
+class MulLayer(nn.Module):
+    """
+    Custom Multiple Layer for quantization :)
+    """
+
+    def __init__(self, quantization: bool = False):
+        """
+        :param dim: concatenate dim
+        :param quantization: if use quantization
+        """
+        super().__init__()
+        if quantization:
+            self.mul_layer = FloatFunctional()
+        else:
+            self.mul_layer = None
+
+    def forward(self, x: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        """
+        forward function :)
+        :param x: input feature maps
+        :param y: other feature maps
+        :return: output feature maps
+        """
+        if self.mul_layer is not None:
+            x = self.mul_layer.mul(x, y)
+        else:
+            x = x * y
+        return x
+
+
+class SEBlock(nn.Module):
+    """
+    Squeeze-and-Excitation Networks :)
+    Reference Paper: https://arxiv.org/pdf/1910.03151
+    """
+
+    def __init__(self, channels: int, scale: float = 0.25, quantization: bool = False) -> None:
+        """
+        :param channels: number of channels
+        :param scale: a scale for calculate mid-channels (mid-channels = channels * scale) default is 0.25
+        :param quantization: use QAT or no
+        """
+        super().__init__()
+        self.reduce = nn.Conv2d(in_channels=channels, out_channels=int(channels * scale), kernel_size=1,
+                                stride=1, bias=True)
+        self.relu = nn.ReLU()
+        self.expand = nn.Conv2d(in_channels=int(channels * scale), out_channels=channels, kernel_size=1,
+                                stride=1, bias=True)
+        self.avg_pool = nn.AdaptiveAvgPool2d((1, 1))
+        self.sigmoid = nn.Sigmoid()
+        self.mul_layer = MulLayer(quantization=quantization)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        forward function :)
+        :param x: input feature maps
+        :return: output feature maps
+        """
+        x_ = self.avg_pool(x)
+        x_ = self.reduce(x_)
+        x_ = self.relu(x_)
+        x_ = self.expand(x_)
+        x_ = torch.sigmoid(x_)
+        return self.mul_layer(x, x_.expand_as(x))
 
 
 if __name__ == "__main__":
