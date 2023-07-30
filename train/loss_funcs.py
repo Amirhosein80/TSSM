@@ -1,9 +1,10 @@
-from typing import Optional, Tuple
 from argparse import Namespace
 from collections import OrderedDict
+from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
+from torchvision.ops import sigmoid_focal_loss
 
 
 class BootstrappedCE(nn.Module):
@@ -42,6 +43,45 @@ class BootstrappedCE(nn.Module):
         return pixel_losses.mean()
 
 
+class SobelFilter(nn.Module):
+    """
+    Pytorch Sobel Filter for edge from labels
+    """
+
+    def __init__(self, ignore_label: int = 255, semantic: bool = True) -> None:
+        """
+        :param ignore_label: ignore value for loss
+        :param semantic: semantic labels or edge labels
+        """
+        super().__init__()
+        self.semantic = semantic
+        self.ignore_label = ignore_label
+        self.sobel_x_filter = torch.tensor([[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]],
+                                           dtype=torch.float16, requires_grad=False).view(1, 1, 3, 3)
+        self.sobel_y_filter = torch.tensor([[-1, -2, -1], [0, 0, 0], [1, 2, 1]],
+                                           dtype=torch.float16, requires_grad=False).view(1, 1, 3, 3)
+
+    def forward(self, labels: torch.Tensor) -> torch.Tensor:
+        """
+        forward function :)
+        :param labels: model outputs
+        :return: edges
+        """
+        x = torch.unsqueeze(labels, dim=1)
+        x = x.to(torch.float16)
+        gradient_x = nn.functional.conv2d(x, self.sobel_x_filter.to(labels.device), stride=1, padding=1)
+        gradient_y = nn.functional.conv2d(x, self.sobel_y_filter.to(labels.device), stride=1, padding=1)
+
+        gradient_magnitude = torch.sqrt(torch.pow(gradient_x, 2) + torch.pow(gradient_y, 2))
+        if self.semantic:
+            gradient_magnitude = torch.squeeze(gradient_magnitude, dim=1)
+            gradient_magnitude = torch.where(gradient_magnitude > 0, labels, self.ignore_label).to(torch.int64)
+        else:
+            gradient_magnitude = torch.where(gradient_magnitude > 0, 1.0, 0.0)
+
+        return gradient_magnitude
+
+
 class Criterion(nn.Module):
     """
     loss class for train :)
@@ -52,6 +92,9 @@ class Criterion(nn.Module):
         :param args: arguments
         """
         super().__init__()
+        self.sobel_semantic = SobelFilter(args.IGNORE_LABEL)
+        self.sobel_edge = SobelFilter(args.IGNORE_LABEL, semantic=False)
+        self.edge_criterion = nn.BCEWithLogitsLoss()
         if args.LOSS == "CROSS":
             self.criterion = nn.CrossEntropyLoss(
                 weight=args.CLASS_WEIGHTS if args.USE_CLASS_WEIGHTS else None,
@@ -66,13 +109,14 @@ class Criterion(nn.Module):
         else:
             raise NotImplemented
 
+        self.args = args
+
     def forward(self, outputs: OrderedDict | torch.Tensor, target: torch.Tensor) \
             -> Tuple[float | torch.Tensor, float | torch.Tensor, float | torch.Tensor]:
         """
         forward function for loss:)
         :param outputs: model outputs
         :param target: segment labels
-        :param edge: SAB labels
         :return: output loss, auxiliary loss, SAB loss
         """
         semantic_loss = 0.0
@@ -82,8 +126,11 @@ class Criterion(nn.Module):
             for key, value in outputs.items():
                 if "out" in key:
                     semantic_loss += self.criterion(value, target)
+                    semantic_loss += self.criterion(value, self.sobel_semantic(target))
                 elif "aux" in key:
                     semantic_aux += self.criterion(value, target)
+                elif "edge" in key:
+                    semantic_edge += self.edge_criterion(value, self.sobel_edge(target))
 
         elif type(outputs) is torch.Tensor:
             semantic_loss += self.criterion(outputs, target)
