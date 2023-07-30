@@ -3,6 +3,9 @@ from argparse import Namespace
 from collections import OrderedDict
 from typing import Tuple, Dict
 
+import PIL.Image
+import matplotlib.pyplot as plt
+import numpy as np
 import tensorboardX as tb
 import torch
 import tqdm
@@ -18,7 +21,7 @@ from utils import set_seed
 def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.DataLoader,
                     optimizer: torch.optim.Optimizer, scaler: torch.cuda.amp.GradScaler, criterion: torch.nn.Module,
                     model_ema: torch.nn.Module, scheduler: torch.optim.lr_scheduler.LRScheduler,
-                    args: Namespace, device: torch.device) -> Tuple[float, float]:
+                    args: Namespace, device: torch.device, log_dict: Dict) -> Tuple[float, float]:
     """
     train model for one epoch :)
     :param model: model
@@ -31,6 +34,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
     :param scheduler: learning rate scheduler
     :param args: arguments
     :param device: device
+    :param log_dict: log dictionary
     :return: mIOU, loss value
     """
     model.train()
@@ -53,7 +57,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
             # forward step & calc loss & metric
             outputs = model(inputs)
             semantic_loss, semantic_aux, semantic_edge = criterion(outputs, targets)
-            loss = semantic_loss + (0.4 * semantic_aux) + semantic_edge
+            loss = semantic_loss + (0.4 * semantic_aux) + (20 * semantic_edge)
             if type(outputs) is OrderedDict:
                 outputs = outputs["out"]
 
@@ -77,7 +81,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
         # print details
         loop.set_description(f"Train ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}"
                              f"    Out Loss: {semantic_total.avg:.4}    Aux Loss: {0.4 * aux_total.avg:.4}"
-                             f"    Edge Loss: {edge_total.avg:.4}")
+                             f"    Edge Loss: {20 * edge_total.avg:.4}")
 
     torch.cuda.empty_cache()
     miou = metric.calculate()
@@ -90,6 +94,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
         'scaler': scaler.state_dict(),
         'optimizer': optimizer.state_dict(),
         'scheduler': scheduler.state_dict(),
+        'log_dict': log_dict
     }
     if model_ema is not None:
         state.update({
@@ -99,7 +104,7 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
     path = os.path.join(args.log, f"checkpoint/final_{args.name}.pth")
     torch.save(state, path)
 
-    return miou, loss_total.avg.item()
+    return miou, semantic_total.avg.item()
 
 
 def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.DataLoader,
@@ -122,6 +127,8 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
     model.eval()
 
     loss_total = AverageMeter()
+    aux_total = AverageMeter()
+    edge_total = AverageMeter()
 
     metric = ConfusionMatrix(num_classes=args.NUM_CLASSES)
     set_seed(epoch - 1)
@@ -134,19 +141,26 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
             inputs, targets = inputs.to(device, non_blocking=True), targets.to(device, non_blocking=True)
 
             outputs = model(inputs)
-            loss, _, _ = criterion(outputs, targets)
+            semantic_loss, semantic_aux, semantic_edge = criterion(outputs, targets)
 
             # update average of loss & metric
             if type(outputs) is OrderedDict:
                 outputs = outputs["out"]
             metric.update(targets=targets, outputs=outputs.argmax(dim=1))
-            loss_total.update(loss)
+            loss_total.update(semantic_loss)
+            aux_total.update(semantic_aux)
+            edge_total.update(semantic_edge)
 
-            loop.set_description(f"Valid ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}")
+            loop.set_description(f"Valid ====>> Epoch:{epoch}    Out Loss:{loss_total.avg:.4}"
+                                 f"    Aux Loss: {0.4 * aux_total.avg:.4}"
+                                 f"    Edge Loss: {20 * edge_total.avg:.4}")
 
             if (batch_idx + 1) % 50 == 0 and save_preds:
                 mask = outputs[0].detach().cpu().argmax(dim=0)
                 mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
+                label = targets[0].detach().cpu()
+                label[label == args.IGNORE_LABEL] = args.NUM_CLASSES
+                label = torch.nn.functional.one_hot(label, args.NUM_CLASSES + 1).to(torch.bool).permute(2, 0, 1)
 
                 image = inputs[0].detach().cpu()
                 colors = []
@@ -155,15 +169,27 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
                 image = unnormalize_image(image, mean=args.MEAN, std=args.STD)
 
-                img_mask = draw_segmentation_masks(
+                img_pred = draw_segmentation_masks(
                     image=image, masks=mask, colors=colors, alpha=0.8)
 
-                writer.add_image(f"mask{batch_idx + 1}", img_mask, epoch)
+                colors.append((0, 0, 0))
+                img_mask = draw_segmentation_masks(
+                    image=image, masks=label, colors=colors, alpha=0.8)
+
+                writer.add_image(f"pred{batch_idx + 1}", img_pred, epoch)
+                writer.add_image(f"real{batch_idx + 1}", img_mask, epoch)
+
+                img_pred = img_pred.permute(1, 2, 0).numpy()
+                img_pred = Image.fromarray(img_pred)
 
                 img_mask = img_mask.permute(1, 2, 0).numpy()
                 img_mask = Image.fromarray(img_mask)
-                experiment.log_image(img_mask, f"mask{batch_idx + 1}", step=epoch)
-                img_mask.save(args.log + f"predicts/mask{batch_idx + 1}.jpg")
+
+                experiment.log_image(img_pred, f"pred{batch_idx + 1}", step=epoch)
+                img_pred.save(args.log + f"predicts/pred{batch_idx + 1}.jpg")
+
+                experiment.log_image(img_mask, f"real{batch_idx + 1}", step=epoch)
+                img_mask.save(args.log + f"predicts/real{batch_idx + 1}.jpg")
 
     miou = metric.calculate()
     torch.cuda.empty_cache()
