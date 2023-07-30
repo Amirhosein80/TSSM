@@ -62,13 +62,13 @@ OHEM_THRESH : 0.3
 FOCAL_ALPHA : 0.25
 FOCAL_GAMMA : 2.0
 MODEL : "deeplabv3"
-LOSS : "OHEM"  # Options: ["OHEM", "CROSS"]
+LOSS : "CROSS"  # Options: ["OHEM", "CROSS"]
 USE_EMA : False
 EMA_DECAY : 0.9999
 RESUME : True
 OVERFIT_TEST : False
 OVERFIT_EPOCHS : 100
 QAT : False
-QAT_PRETRAIN_WEIGHTS : "./train_log/unet/3/checkpoint/best_unet.pth"
+QAT_PRETRAIN_WEIGHTS : ""
 QAT_OBSERVER_EPOCH : 4
 QAT_BATCHNORM_EPOCH : 3
