@@ -6,7 +6,7 @@ import torch.nn as nn
 from typing import List, Dict
 from torchvision.models._utils import IntermediateLayerGetter
 
-from models.model_utils import AddLayer, CatLayer, ConvBNAct
+from models.model_utils import AddLayer, CatLayer, ConvBNAct, SEBlock
 
 
 class DeepLabV3(nn.Module):
@@ -34,13 +34,9 @@ class DeepLabV3(nn.Module):
         # scratch parts
         self.add = AddLayer(use_relu=True)
         self.cat = CatLayer(dim=1)
+        self.se = SEBlock(256)
 
-        self.conv_4 = ConvBNAct(24, 8, 1)
-        self.conv_8 = ConvBNAct(40, 40, 1)
-        self.aspp.project[0] = nn.Conv2d(256 * 5, 40, kernel_size=1, bias=False)
-        self.aspp.project[1] = nn.BatchNorm2d(40)
-
-        self.conv_sum = ConvBNAct(40, 40, kernel_size=3, stride=1, padding=1)
+        self.conv = ConvBNAct(24 + 40 + 256, 256, kernel_size=3, stride=1, padding=1)
 
         self.edge_classifier = nn.Sequential(
             ConvBNAct(24, 24, kernel_size=3, stride=1, padding=1),
@@ -51,8 +47,8 @@ class DeepLabV3(nn.Module):
             nn.Conv2d(40, num_classes, 1)
         )
         self.head = nn.Sequential(
-            ConvBNAct(48, 48, kernel_size=3, stride=1, padding=1),
-            nn.Conv2d(48, num_classes, 1)
+            ConvBNAct(256, 256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(256, num_classes, 1)
         )
         self.inference = inference
 
@@ -68,11 +64,12 @@ class DeepLabV3(nn.Module):
         result = OrderedDict()
         x = features["out"]
         x = self.aspp(x)
-        x = nn.functional.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = self.add(x, self.conv_8(features["aux"]))
-        x = self.conv_sum(x)
-        x = nn.functional.interpolate(x, scale_factor=2.0, mode="bilinear", align_corners=False)
-        x = self.cat([x, self.conv_4(features["inter"])])
+        x16 = nn.functional.interpolate(x, scale_factor=4.0, mode="bilinear", align_corners=False)
+        x8 = nn.functional.interpolate(features["aux"], scale_factor=2.0, mode="bilinear", align_corners=False)
+        x = self.cat([x16, x8, features["inter"]])
+        x = self.conv(x)
+        x = self.add(x, self.se(x))
+
         x = nn.functional.interpolate(self.head(x), size=input_shape, mode="bilinear", align_corners=False)
         result["out"] = x
 
