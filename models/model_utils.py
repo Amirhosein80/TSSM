@@ -119,12 +119,15 @@ class ConvBNAct(nn.Module):
         self.dilation = dilation
         self.groups = groups
         self.use_act = use_act
+        self.module_names = ["conv", "bn"]
 
         self.conv = nn.Sequential()
         self.conv.add_module("conv", nn.Conv2d(in_channels, out_channels, kernel_size=kernel_size, padding=padding,
                                                stride=stride, dilation=dilation, groups=groups, bias=False))
         self.conv.add_module("bn", nn.BatchNorm2d(out_channels))
-        self.conv.add_module("act", nn.ReLU(inplace=True) if use_act else nn.Identity())
+        if use_act:
+            self.conv.add_module("act", nn.ReLU(inplace=True))
+            self.module_names.append("act")
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -140,8 +143,8 @@ class ConvBNAct(nn.Module):
         :param is_qat: use quantization aware training or not
         :return:
         """
-        
-        _fuse_modules(self.conv, ["conv", "bn", "act"], is_qat, inplace=True)
+
+        _fuse_modules(self.conv, self.module_names, is_qat, inplace=True)
 
 
 class AddLayer(nn.Module):
