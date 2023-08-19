@@ -56,7 +56,7 @@ class FocalLoss(nn.Module):
         :param ignore_index: ignore value in target. default is 255
         """
         super().__init__()
-        self.alpha = alphagit add 
+        self.alpha = alpha
         self.gamma = gamma
         self.ignore_index = ignore_index
         self.ce = nn.CrossEntropyLoss(reduction="none", ignore_index=ignore_index)
