@@ -68,6 +68,8 @@ def add_yaml_2_args_and_save_configs_and_get_device(parser: ArgumentParser,
             experiment.set_name(parser.parse_args().name)
             experiment.log_parameters(configs)
             keys_dict[parser.parse_args().name] = experiment.get_key()
+            with open(os.path.join("./train_log/", "experiment.json"), "w") as outfile:
+                json.dump(keys_dict, outfile)
 
     else:
         with open(os.path.join("./train_log/", "experiment.json"), "w") as outfile:
