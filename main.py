@@ -22,7 +22,7 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="deeplabv3_run3", type=str,
+    parser.add_argument("--name", default="regseg_run11", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
