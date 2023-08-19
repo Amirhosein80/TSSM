@@ -43,6 +43,39 @@ class BootstrappedCE(nn.Module):
         return pixel_losses.mean()
 
 
+class FocalLoss(nn.Module):
+    """
+    Focal Loss for semantic segmentation :)
+    Focal Loss paper: https://arxiv.org/pdf/1708.02002
+    """
+
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, ignore_index: int = 255):
+        """
+        :param alpha: alpha value for focal loss. default is 0.25
+        :param gamma: gamma value for focal loss. default is 2.0
+        :param ignore_index: ignore value in target. default is 255
+        """
+        super().__init__()
+        self.alpha = alphagit add 
+        self.gamma = gamma
+        self.ignore_index = ignore_index
+        self.ce = nn.CrossEntropyLoss(reduction="none", ignore_index=ignore_index)
+
+    def forward(self, output: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+        """
+        calculate loss :)
+        :param output: output of nural network shape: (B, C, H, W)
+        :param labels: true labels shape: (B, H, W)
+        :return: loss value
+        """
+        _, c, _, _ = output.shape
+
+        ce_loss = self.ce(output, labels)
+        pt = torch.exp(-ce_loss)
+        loss = self.alpha * ((1 - pt) ** self.gamma) * ce_loss
+        return loss.mean()
+
+
 class SobelFilter(nn.Module):
     """
     Pytorch Sobel Filter for edge from labels
@@ -92,7 +125,6 @@ class Criterion(nn.Module):
         :param args: arguments
         """
         super().__init__()
-        self.sobel_semantic = SobelFilter(args.IGNORE_LABEL)
         self.sobel_edge = SobelFilter(args.IGNORE_LABEL, semantic=False)
         self.edge_criterion = nn.BCEWithLogitsLoss()
         if args.LOSS == "CROSS":
@@ -106,6 +138,9 @@ class Criterion(nn.Module):
                                             label_smoothing=args.LABEL_SMOOTHING,
                                             weight=args.CLASS_WEIGHTS if args.USE_CLASS_WEIGHTS else None
                                             )
+        elif args.LOSS == "FOCAL":
+            self.criterion = FocalLoss(alpha=args.FOCAL_ALPHA, ignore_index=args.IGNORE_LABEL,
+                                       gamma=args.FOCAL_GAMMA)
         else:
             raise NotImplemented
 
@@ -126,7 +161,6 @@ class Criterion(nn.Module):
             for key, value in outputs.items():
                 if "out" in key:
                     semantic_loss += self.criterion(value, target)
-                    semantic_loss += self.criterion(value, self.sobel_semantic(target))
                 elif "aux" in key:
                     semantic_aux += self.criterion(value, target)
                 elif "edge" in key:
