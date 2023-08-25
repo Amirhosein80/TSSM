@@ -155,7 +155,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
                                  f"    Aux Loss: {0.4 * aux_total.avg:.4}"
                                  f"    Edge Loss: {20 * edge_total.avg:.4}")
 
-            if (batch_idx + 1) % 50 == 0 and save_preds:
+            if (batch_idx + 1) % 25 == 0 and save_preds:
                 mask = outputs[0].detach().cpu().argmax(dim=0)
                 mask = torch.nn.functional.one_hot(mask, args.NUM_CLASSES).to(torch.bool).permute(2, 0, 1)
                 label = targets[0].detach().cpu()
