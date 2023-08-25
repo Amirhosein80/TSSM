@@ -213,7 +213,7 @@ class RegSeg(nn.Module):
     RegSeg
     """
 
-    def __init__(self, num_classes: int, quantization: bool = False, inference=False) -> None:
+    def __init__(self, num_classes: int, quantization: bool = False, grad_cam=False, inference=False) -> None:
         """
         :param num_classes: number of classes
         :param quantization: use quantization
@@ -231,6 +231,8 @@ class RegSeg(nn.Module):
         self.decoder = Decoder(quantization=quantization)
 
         self.head = Head(64 + 8, num_classes)
+        self.grad_cam = grad_cam and (not quantization)
+        self.gradients = []
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """
@@ -244,6 +246,10 @@ class RegSeg(nn.Module):
             x = self.quant(x)
 
         x4, x8, x16 = self.backbone(x)
+        if self.grad_cam:
+            x4.register_hook(self.activations_hook)
+            x8.register_hook(self.activations_hook)
+            x16.register_hook(self.activations_hook)
         x = self.decoder(x4=x4, x8=x8, x16=x16)
         x = nn.functional.interpolate(self.head(x), size=input_shape, mode="bilinear", align_corners=False)
 
@@ -284,6 +290,31 @@ class RegSeg(nn.Module):
             if type(m) is ConvBNAct:
                 m.fuse_model(is_qat)
 
+    def activations_hook(self, grad):
+        """
+        save gradient
+        :param grad: gradient
+        """
+        self.gradients.append(grad)
+
+    def get_activations_gradient(self):
+        """
+        get gradients
+        :return: list of gradients
+        """
+        return self.gradients[::-1]
+
+    def get_activations(self, x):
+        """
+        :param x: get activations
+        :return: dict of activations
+        """
+        x4, x8, x16 = self.backbone(x)
+        return {
+            "feature_4": x4,
+            "feature_8": x8,
+            "feature_16": x16,
+        }
 
 if __name__ == "__main__":
     # model = DeepLabV3()
