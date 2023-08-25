@@ -24,7 +24,7 @@ class Compose:
         """
         self.transforms = transforms
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -41,7 +41,7 @@ class ToTensor:
     Convert PIL to Tensor :)
     """
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -49,7 +49,8 @@ class ToTensor:
             PIL img or Tensor: Transformed img.
         """
         img = trf.to_tensor(img)
-        mask = torch.as_tensor(np.array(mask), dtype=torch.int64)
+        if mask is not None:
+            mask = torch.as_tensor(np.array(mask), dtype=torch.int64)
 
         return img, mask
 
@@ -67,7 +68,7 @@ class Normalize:
         self.mean = mean
         self.std = std
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -86,7 +87,7 @@ class RandomResize:
     def __init__(self, min_max_size: Tuple[int]) -> None:
         self.min_max_size = min_max_size
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -97,8 +98,9 @@ class RandomResize:
         size = random.randint(min_s, max_s)
         img = trf.resize(img, [size, size],
                          interpolation=trf.InterpolationMode.BILINEAR)
-        mask = trf.resize(mask, [size, size],
-                          interpolation=trf.InterpolationMode.NEAREST)
+        if mask is not None:
+            mask = trf.resize(mask, [size, size],
+                              interpolation=trf.InterpolationMode.NEAREST)
 
         return img, mask
 
@@ -113,7 +115,7 @@ class Resize:
             size = [1024, 1024]
         self.size = size
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -122,8 +124,9 @@ class Resize:
         """
         img = trf.resize(img, self.size,
                          interpolation=trf.InterpolationMode.BILINEAR)
-        mask = trf.resize(mask, self.size,
-                          interpolation=trf.InterpolationMode.NEAREST)
+        if mask is not None:
+            mask = trf.resize(mask, self.size,
+                              interpolation=trf.InterpolationMode.NEAREST)
 
         return img, mask
 
@@ -139,7 +142,7 @@ class RandomCrop:
         self.ignore_label = ignore_label
         self.crop_size = crop_size
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -161,7 +164,8 @@ class RandomCrop:
 
         crop_params = t.RandomCrop.get_params(img, (self.crop_size[0], self.crop_size[1]))
         img = trf.crop(img, *crop_params)
-        mask = trf.crop(mask, *crop_params)
+        if mask is not None:
+            mask = trf.crop(mask, *crop_params)
 
         return img, mask
 
@@ -177,7 +181,7 @@ class RandomHorizontalFlip:
         """
         self.p = p
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -186,7 +190,8 @@ class RandomHorizontalFlip:
         """
         if random.random() < self.p:
             img = trf.hflip(img)
-            mask = trf.hflip(mask)
+            if mask is not None:
+                mask = trf.hflip(mask)
 
         return img, mask
 
@@ -202,7 +207,7 @@ class RandomVerticalFlip:
         """
         self.p = p
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -211,7 +216,8 @@ class RandomVerticalFlip:
         """
         if random.random() < self.p:
             img = trf.vflip(img)
-            mask = trf.vflip(mask)
+            if mask is not None:
+                mask = trf.vflip(mask)
 
         return img, mask
 
@@ -235,7 +241,7 @@ class ColorJitter:
         self.hue = hue
         self.jitter = t.ColorJitter(brightness=brightness, contrast=contrast, saturation=saturation, hue=hue)
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -262,7 +268,7 @@ class RandomRotation:
         self.expand = expand
         self.seg_fill = seg_fill
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -272,7 +278,9 @@ class RandomRotation:
         random_angle = random.random() * 2 * self.angle - self.angle
         if random.random() < self.p:
             img = trf.rotate(img, random_angle, trf.InterpolationMode.BILINEAR, self.expand, fill=[0.0, 0.0, 0.0])
-            mask = trf.rotate(mask, random_angle, trf.InterpolationMode.NEAREST, self.expand, fill=[self.seg_fill, ])
+            if mask is not None:
+                mask = trf.rotate(mask, random_angle,
+                                  trf.InterpolationMode.NEAREST, self.expand, fill=[self.seg_fill, ])
         return img, mask
 
 
@@ -287,7 +295,7 @@ class RandomGrayscale:
         """
         self.p = p
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -331,7 +339,7 @@ class RandAugment:
         self.fill = fill if fill is not None else _FILL
         self.fill_mask = ignore_value
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -350,7 +358,7 @@ class RandAugment:
             if signed and torch.randint(2, (1,)):
                 magnitude *= -1.0
             img = _apply_op(img, op_name, magnitude, interpolation=self.interpolation, fill=fill)
-            if op_name in affine_ops:
+            if op_name in affine_ops and mask is not None:
                 mask = _apply_op(mask, op_name, magnitude, interpolation=self.mask_interpolation, fill=self.fill_mask)
         return img, mask
 
@@ -382,7 +390,7 @@ class TrivialAugmentWide:
         self.fill = fill if fill is not None else _FILL
         self.fill_mask = ignore_value
 
-    def __call__(self, img: Tensor, mask: Tensor) -> tuple[Tensor, Tensor]:
+    def __call__(self, img: Tensor, mask: Optional[Tensor] = None) -> tuple[Tensor, Tensor] | tuple[Tensor, None]:
         """
             img (PIL Image or Tensor): img to be transformed.
             mask (PIL Image or Tensor): Mask to be transformed.
@@ -403,7 +411,7 @@ class TrivialAugmentWide:
             magnitude *= -1.0
 
         img = _apply_op(img, op_name, magnitude, interpolation=self.interpolation, fill=fill)
-        if op_name in affine_ops:
+        if op_name in affine_ops and mask is not None:
             mask = _apply_op(mask, op_name, magnitude, interpolation=self.mask_interpolation, fill=self.fill_mask)
         return img, mask
 
