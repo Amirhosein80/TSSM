@@ -1,5 +1,4 @@
 import argparse
-import copy
 import gc
 import os
 
@@ -22,7 +21,7 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="regseg_run11", type=str,
+    parser.add_argument("--name", default="regseg_run1", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
@@ -70,10 +69,11 @@ def main() -> None:
     if args.QAT:
         print("Quantization Aware Training")
         model.load_state_dict(torch.load(args.QAT_PRETRAIN_WEIGHTS)["model"])
+        print(f"Float32 model size{utils.print_model_size(model)}")
         model.fuse_model(is_qat=True)
-        qconfig = torch.ao.quantization.get_default_qat_qconfig("x86")
+        qconfig = torch.quantization.get_default_qat_qconfig()
         model.qconfig = qconfig
-        torch.ao.quantization.prepare_qat(model, inplace=True)
+        model = torch.quantization.prepare_qat(model)
         args.name = args.name + "_qat"
         experiment.set_name(args.name)
 
@@ -109,10 +109,6 @@ def main() -> None:
     early_stopping = train.EarlyStopping(tolerance=args.EARLY_STOPPING_TOLERANCE,
                                          min_delta=args.EARLY_STOPPING_DELTA)
 
-    if args.QAT:
-        model.apply(torch.quantization.enable_observer)
-        model.apply(torch.quantization.enable_fake_quant)
-
     for epoch in range(start_epoch + 1, args.EPOCHS + 1):
         utils.set_seed(epoch)
         with experiment.train():
@@ -123,12 +119,6 @@ def main() -> None:
 
         with torch.inference_mode():
             with experiment.validate():
-
-                if epoch >= args.QAT_OBSERVER_EPOCH and args.QAT:
-                    model.apply(torch.quantization.disable_observer)
-                if epoch >= args.QAT_BATCHNORM_EPOCH and args.QAT:
-                    model.apply(torch.nn.intrinsic.qat.freeze_bn_stats)
-
                 valid_acc, valid_loss = train.evaluate(model=model, epoch=epoch, dataloader=valid_dl,
                                                        criterion=criterion, args=args, writer=writer,
                                                        experiment=experiment, device=device, classes=dataset_classes,
@@ -136,15 +126,11 @@ def main() -> None:
 
                 if args.QAT:
                     print()
-                    quantized_eval_model = copy.deepcopy(model)
-                    quantized_eval_model.eval()
-                    quantized_eval_model.to(torch.device("cpu"))
-                    quantized_eval_model = torch.quantization.convert(quantized_eval_model, inplace=False)
-                    print("Evaluate QAT model")
-                    qat_acc, qat_loss = train.evaluate(model=quantized_eval_model, epoch=epoch, dataloader=valid_dl,
-                                                       criterion=criterion, args=args, writer=writer,
-                                                       experiment=experiment, device=torch.device("cpu"),
-                                                       classes=dataset_classes, save_preds=False)
+                    model.to(torch.device("cpu"))
+                    model.eval()
+                    quantized_eval_model = torch.quantization.convert(model)
+                    # utils.run_benchmark(quantized_eval_model, valid_dl)
+                    model.to(device)
 
                 else:
                     quantized_eval_model = None
@@ -192,14 +178,6 @@ def main() -> None:
         writer.add_scalar('Metric/valid', valid_acc, epoch, walltime=epoch,
                           display_name="Validation Metric", )
 
-        if args.QAT:
-            writer.add_scalar('Loss/QAT', qat_loss, epoch, walltime=epoch,
-                              display_name="QAT Loss", )
-            writer.add_scalar('Metric/QAT', qat_acc, epoch, walltime=epoch,
-                              display_name="QAT Metric", )
-            experiment.log_metric("Loss_QAT", qat_loss, epoch=epoch)
-            experiment.log_metric("Metric_QAT", qat_acc, epoch=epoch)
-
         best_acc = utils.save(model=model, acc=valid_acc, best_acc=best_acc, scaler=scaler, optimizer=optimizer,
                               scheduler=scheduler, model_ema=model_ema, epoch=epoch, args=args,
                               qat_model=quantized_eval_model, log_dict=log_dict)
@@ -243,13 +221,14 @@ def main() -> None:
             "acc": valid_acc,
         })
 
-    torch.jit.save(torch.jit.script(model),
-                   os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pt"))
-
     model.to(torch.device("cpu"))
     if quantized_eval_model is not None:
-        torch.jit.save(torch.jit.script(quantized_eval_model),
+        torch.jit.save(torch.quantization.convert_jit(torch.jit.script(quantized_eval_model)),
                        os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pt"))
+
+    else:
+        torch.jit.save(torch.jit.script(model),
+                       os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pt"))
 
     writer.close()
     experiment.end()
