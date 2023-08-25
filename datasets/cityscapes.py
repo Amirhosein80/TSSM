@@ -10,7 +10,7 @@ from torch import Tensor
 
 from datasets.base import BaseDataset
 
-PHASES = ["train", "val"]
+PHASES = ["train", "val", "test"]
 CITYSCAPES_CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": "sidewalk", "color": (244, 35, 232)},
                       2: {"name": "building", "color": (70, 70, 70)}, 3: {"name": "wall", "color": (102, 102, 156)},
                       4: {"name": "fence", "color": (190, 153, 153)}, 5: {"name": "pole", "color": (153, 153, 153)},
@@ -99,9 +99,10 @@ class Cityscapes(BaseDataset):
         """
         super().__init__()
         assert phase in PHASES, f"{phase} not in {PHASES} :)"
-        if not os.path.isfile("./train_val_paths_cityscapes.json"):
-            self.create_json_paths_cityscapes(root, PHASES)
-        self.files = self.read_json_file(phase)
+        if phase != "test":
+            if not os.path.isfile("./train_val_paths_cityscapes.json"):
+                self.create_json_paths_cityscapes(root, PHASES)
+            self.files = self.read_json_file(phase)
         self.transforms = transforms
 
     def __getitem__(self, idx) -> Tuple[Tensor | PIL.Image.Image, Tensor | PIL.Image.Image]:
@@ -122,6 +123,13 @@ class Cityscapes(BaseDataset):
     def __len__(self):
         return len(self.files)
 
+    def get_test_image(self, image_path):
+        image = cv2.imread(image_path, cv2.IMREAD_COLOR)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        image = PIL.Image.fromarray(image)
+        if self.transforms is not None:
+            image, _ = self.transforms(image, None)
+        return image
 
 if __name__ == "__main__":
     pass
