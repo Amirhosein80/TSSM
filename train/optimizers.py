@@ -59,7 +59,7 @@ def get_optimizer(model: torch.nn.Module, num_iters: int, args: Namespace, devic
         raise NotImplemented
 
     # set warmup scheduler if you use
-    if args.WARMUP_EPOCHS > 0 and not args.OVERFIT_TEST:
+    if args.WARMUP_EPOCHS > 0 and not args.OVERFIT_TEST and not args.QAT:
         warm_lr_scheduler = optim.lr_scheduler.LinearLR(
             optimizer, start_factor=args.WARMUP_FACTOR, total_iters=warm_iters)
 
