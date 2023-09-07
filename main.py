@@ -21,7 +21,7 @@ def get_args() -> argparse.ArgumentParser:
     """
     parser = argparse.ArgumentParser(description="A Good Python Code for train your semantic segmentation models",
                                      add_help=True)
-    parser.add_argument("--name", default="regseg_run1", type=str,
+    parser.add_argument("--name", default="regseg_cityv2_run2", type=str,
                         help=f"experiment name ")
     parser.add_argument("--dataset", default="cityscapes", type=str,
                         help=f"datasets name ")
@@ -40,6 +40,8 @@ def main() -> None:
 
     if args.dataset == "cityscapes":
         yaml_file = "./configs/cityscapes.yaml"
+    elif args.dataset == "voc":
+        yaml_file = "./configs/voc.yaml"
     else:
         raise NotImplemented
 
@@ -50,8 +52,8 @@ def main() -> None:
     args = parser.parse_args()
     train_transforms, val_transforms = transforms.get_augs(args)
     dataset, dataset_classes = datasets.DATASETS[args.dataset]
-    train_ds = dataset(phase="train", root=args.DIR, transforms=train_transforms)
-    valid_ds = dataset(phase="val", root=args.DIR, transforms=val_transforms)
+    train_ds = dataset(phase="train", root=args.DIR, transforms=train_transforms, version=args.VERSION)
+    valid_ds = dataset(phase="val", root=args.DIR, transforms=val_transforms, version=args.VERSION)
 
     train_sampler = torch.utils.data.RandomSampler(train_ds)
     valid_sampler = torch.utils.data.SequentialSampler(valid_ds)
@@ -221,14 +223,6 @@ def main() -> None:
             "acc": valid_acc,
         })
 
-    model.to(torch.device("cpu"))
-    if quantized_eval_model is not None:
-        torch.jit.save(torch.quantization.convert_jit(torch.jit.script(quantized_eval_model)),
-                       os.path.join(args.log, f"checkpoint/last_qat_scripted_{args.name}.pt"))
-
-    else:
-        torch.jit.save(torch.jit.script(model),
-                       os.path.join(args.log, f"checkpoint/last_scripted_{args.name}.pt"))
 
     writer.close()
     experiment.end()
