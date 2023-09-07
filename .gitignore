@@ -7,6 +7,10 @@ train/__pycache__
 transforms/__pycache__
 data
 train_log
+EDA
+EDA.ipynb
 mytests.ipynb
 train_val_paths_cityscapes.json
+train_val_paths_cityscapes_v2.json
+train_val_paths_voc.json
 wandb
