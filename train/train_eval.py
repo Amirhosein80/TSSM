@@ -79,9 +79,14 @@ def train_one_epoch(model: torch.nn.Module, epoch: int, dataloader: torch.utils.
         edge_total.update(semantic_edge)
 
         # print details
-        loop.set_description(f"Train ====>> Epoch:{epoch}    Loss:{loss_total.avg:.4}"
-                             f"    Out Loss: {semantic_total.avg:.4}    Aux Loss: {0.4 * aux_total.avg:.4}"
-                             f"    Edge Loss: {20 * edge_total.avg:.4}")
+        loop.set_postfix({
+            "Phase": "Train",
+            "Epoch": epoch,
+            "Loss": f"{loss_total.avg:.4}",
+            "Out Loss": f"{semantic_total.avg:.4}",
+            "Aux Loss": f"{0.4 * aux_total.avg:.4}",
+            "Edge Loss": f"{20 * edge_total.avg:.4}",
+        })
 
     torch.cuda.empty_cache()
     miou = metric.calculate()
@@ -127,6 +132,7 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
     model.eval()
 
     loss_total = AverageMeter()
+    semantic_total = AverageMeter()
     aux_total = AverageMeter()
     edge_total = AverageMeter()
 
@@ -142,18 +148,25 @@ def evaluate(model: torch.nn.Module, epoch: int, dataloader: torch.utils.data.Da
 
             outputs = model(inputs)
             semantic_loss, semantic_aux, semantic_edge = criterion(outputs, targets)
+            loss = semantic_loss + (0.4 * semantic_aux) + (20 * semantic_edge)
 
             # update average of loss & metric
             if type(outputs) is OrderedDict:
                 outputs = outputs["out"]
             metric.update(targets=targets, outputs=outputs.argmax(dim=1))
-            loss_total.update(semantic_loss)
+            loss_total.update(loss)
+            semantic_total.update(semantic_loss)
             aux_total.update(semantic_aux)
             edge_total.update(semantic_edge)
 
-            loop.set_description(f"Valid ====>> Epoch:{epoch}    Out Loss:{loss_total.avg:.4}"
-                                 f"    Aux Loss: {0.4 * aux_total.avg:.4}"
-                                 f"    Edge Loss: {20 * edge_total.avg:.4}")
+            loop.set_postfix({
+                "Phase": "Validation",
+                "Epoch": epoch,
+                "Loss": f"{loss_total.avg:.4}",
+                "Out Loss": f"{semantic_total.avg:.4}",
+                "Aux Loss": f"{0.4 * aux_total.avg:.4}",
+                "Edge Loss": f"{20 * edge_total.avg:.4}",
+            })
 
             if (batch_idx + 1) % 25 == 0 and save_preds:
                 mask = outputs[0].detach().cpu().argmax(dim=0)
