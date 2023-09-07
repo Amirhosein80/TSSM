@@ -230,11 +230,6 @@ def save(model: torch.nn.Module, acc: float, best_acc: float,
 
         if qat_model is not None:
             torch.save(qat_model.state_dict(), os.path.join(args.log, f"checkpoint/best_qat_{args.name}.pth"))
-            torch.jit.save(torch.quantization.convert_jit(torch.jit.script(qat_model)),
-                           os.path.join(args.log, f"checkpoint/best_qat_scripted_{args.name}.pt"))
-        else:
-            torch.jit.save(torch.jit.script(model),
-                           os.path.join(args.log, f"checkpoint/best_scripted_{args.name}.pt"))
         best_acc = acc
     return best_acc
 
