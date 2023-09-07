@@ -26,33 +26,6 @@ CITYSCAPES_CLASSES = {0: {"name": "road", "color": (128, 64, 128)}, 1: {"name": 
                       18: {"name": "bicycle", "color": (119, 11, 32)}, }
 
 
-def convert_labels(label: np.ndarray, ignore_label: int = 255) -> np.ndarray:
-    """
-    convert all classes of cityscapes to 19 classes :)
-    :param label: old label
-    :param ignore_label: ignore variable for unselected labels
-    :return: new label
-    """
-    label_mapping = {-1: ignore_label, 0: ignore_label,
-                     1: ignore_label, 2: ignore_label,
-                     3: ignore_label, 4: ignore_label,
-                     5: ignore_label, 6: ignore_label,
-                     7: 0, 8: 1, 9: ignore_label,
-                     10: ignore_label, 11: 2, 12: 3,
-                     13: 4, 14: ignore_label,
-                     15: ignore_label,
-                     16: ignore_label, 17: 5,
-                     18: ignore_label,
-                     19: 6, 20: 7, 21: 8, 22: 9, 23: 10, 24: 11,
-                     25: 12, 26: 13, 27: 14, 28: 15,
-                     29: ignore_label, 30: ignore_label,
-                     31: 16, 32: 17, 33: 18}
-    temp = label.copy()
-    for k, v in label_mapping.items():
-        label[temp == k] = v
-    return label
-
-
 def show_image_city(image: PIL.Image.Image) -> None:
     """
     plot image :)
@@ -91,18 +64,29 @@ class Cityscapes(BaseDataset):
     Link: "https://www.cityscapes-dataset.com/
     """
 
-    def __init__(self, phase, root, transforms: Optional[Callable] = None) -> None:
+    def __init__(self, phase, root, transforms: Optional[Callable] = None, version: int = 1) -> None:
         """
         :param phase: train or validation
         :param root: datasets directory
         :param transforms: data augmentations for change datas
+        :param version: select dataset version *(version 1 is original version)
         """
         super().__init__()
+        if version == 1:
+            load_fn = self.read_json_file_cityscapes
+            create_fn = self.create_json_paths_cityscapes
+            json_file = "./train_val_paths_cityscapes.json"
+        elif version == 2:
+            load_fn = self.read_json_file_cityscapes_v2
+            create_fn = self.create_json_paths_cityscapes_v2
+            json_file = "./train_val_paths_cityscapes_v2.json"
+        else:
+            raise NotImplemented
         assert phase in PHASES, f"{phase} not in {PHASES} :)"
         if phase != "test":
-            if not os.path.isfile("./train_val_paths_cityscapes.json"):
-                self.create_json_paths_cityscapes(root, PHASES)
-            self.files = self.read_json_file(phase)
+            if not os.path.isfile(json_file):
+                create_fn(root, PHASES)
+            self.files = load_fn(phase)
         self.transforms = transforms
 
     def __getitem__(self, idx) -> Tuple[Tensor | PIL.Image.Image, Tensor | PIL.Image.Image]:
@@ -110,12 +94,11 @@ class Cityscapes(BaseDataset):
         image = cv2.imread(image, cv2.IMREAD_COLOR)
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         mask = cv2.imread(mask, cv2.IMREAD_GRAYSCALE)
-        mask = convert_labels(mask)
-
-        image = PIL.Image.fromarray(image)
-        mask = PIL.Image.fromarray(mask)
+        mask = self.convert_labels_cityscapes(mask)
 
         if self.transforms is not None:
+            image = PIL.Image.fromarray(image)
+            mask = PIL.Image.fromarray(mask)
             image, mask = self.transforms(image, mask)
 
         return image, mask
@@ -130,6 +113,7 @@ class Cityscapes(BaseDataset):
         if self.transforms is not None:
             image, _ = self.transforms(image, None)
         return image
+
 
 if __name__ == "__main__":
     pass
